@@ -55,9 +55,11 @@ vite.standalone.config.ts
 WireWise-Standalone.html
 public/.nojekyll
 
-# Electron desktop build artifacts
+# Desktop build artifacts
 release/
 dist-electron/
+src-tauri/target/
+src-tauri/gen/
 
 # Assembled GitHub Pages site (CI)
 _site/

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
-const outDir = path.join(rootDir, 'build-icons');
+const outDir = path.join(rootDir, 'src-tauri', 'icons');
 fs.mkdirSync(outDir, { recursive: true });
 
 // WireWise "Check Tile" mark, matching public/icon.svg and brand/logo.svg
@@ -149,10 +149,17 @@ function buildIco(sizes) {
   return Buffer.concat([header, ...entries, ...pngs.map((p) => p.buf)]);
 }
 
+const png32 = renderPng(32);
+const png128 = renderPng(128);
 const png256 = renderPng(256);
 const ico = buildIco([16, 24, 32, 48, 64, 128, 256]);
 
+fs.writeFileSync(path.join(outDir, '32x32.png'), png32);
+fs.writeFileSync(path.join(outDir, '128x128.png'), png128);
+fs.writeFileSync(path.join(outDir, '128x128@2x.png'), png256);
 fs.writeFileSync(path.join(outDir, 'icon.png'), png256);
 fs.writeFileSync(path.join(outDir, 'icon.ico'), ico);
 fs.copyFileSync(path.join(outDir, 'icon.png'), path.join(rootDir, 'site', 'icon-256.png'));
-console.log(`Generated site/icon-256.png, build-icons/icon.png (${png256.length} B) and build-icons/icon.ico (${ico.length} B)`);
+console.log(
+  `Generated site/icon-256.png and src-tauri/icons/{32x32.png,128x128.png,128x128@2x.png,icon.png,icon.ico} (${ico.length} B)`
+);

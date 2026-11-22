@@ -2,12 +2,21 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
+import { initDesktopBridge, isTauriDesktop } from './utils/desktopBridge';
 import './index.css';
+
+// Register window.wirewiseDesktop bridge before App mounts when running inside Tauri
+initDesktopBridge();
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 
-// Offline install: cache the app shell (production over http(s) only; the single-file build is opened from disk)
-if (import.meta.env.PROD && 'serviceWorker' in navigator && /^https?:$/.test(window.location.protocol)) {
+// Offline install: cache the app shell (production web over http(s) only, not inside Tauri desktop)
+if (
+  import.meta.env.PROD &&
+  !isTauriDesktop() &&
+  'serviceWorker' in navigator &&
+  /^https?:$/.test(window.location.protocol)
+) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {
       /* offline install is optional */
