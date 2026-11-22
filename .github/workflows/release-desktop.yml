@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.0.1). Leave blank to use package.json version.'
+        description: 'Release version (e.g. 1.0.2). Leave blank to use package.json version.'
         required: false
         type: string
 
@@ -27,15 +27,29 @@ jobs:
           node-version: 24
           cache: 'npm'
 
+      - name: Setup Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply manual release version (if provided)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
+      - name: Sync release version (if tag or manual input)
         shell: pwsh
         run: |
-          $ver = "${{ inputs.version }}".TrimStart('v')
-          npm version $ver --no-git-tag-version --allow-same-version
+          $targetVer = ""
+          if ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.version }}" -ne "") {
+            $targetVer = "${{ inputs.version }}"
+          } elseif ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -match "^v") {
+            $targetVer = "${{ github.ref_name }}"
+          }
+          if ($targetVer -ne "") {
+            node scripts/set-version.mjs $targetVer
+          }
 
       - name: Run smoke tests
         run: npm test
@@ -43,33 +57,49 @@ jobs:
       - name: Generate desktop app icons
         run: node scripts/generate-icons.mjs
 
-      - name: Build production web bundle
-        run: npm run build
+      - name: Build Tauri (Rust) Windows Installer & Portable EXE
+        run: npx tauri build --bundles nsis
 
-      - name: Prepare draft GitHub Release before parallel asset uploads
+      - name: Stage versioned Windows release artifacts
+        shell: pwsh
+        run: |
+          $ver = (node -p "require('./package.json').version").Trim()
+          New-Item -ItemType Directory -Force -Path "release" | Out-Null
+
+          $nsisDir = "src-tauri\target\release\bundle\nsis"
+          $setupSrc = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $setupSrc) {
+            throw "NSIS setup installer not found in $nsisDir"
+          }
+
+          $portableSrc = "src-tauri\target\release\wirewise.exe"
+          if (-not (Test-Path $portableSrc)) {
+            throw "Standalone Tauri binary not found at $portableSrc"
+          }
+
+          $setupDest = "release\WireWise-Setup-$ver.exe"
+          $portableDest = "release\WireWise-Portable-$ver.exe"
+          Copy-Item -Force $setupSrc.FullName $setupDest
+          Copy-Item -Force $portableSrc $portableDest
+
+          Get-Item $setupDest, $portableDest | Select-Object Name, @{N='MB';E={[math]::Round($_.Length/1MB,2)}} | Format-Table -AutoSize
+
+      - name: Publish Windows EXE binaries to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
           $ver = (node -p "require('./package.json').version").Trim()
           $tag = "v$ver"
+          $setupFile = "release\WireWise-Setup-$ver.exe"
+          $portableFile = "release\WireWise-Portable-$ver.exe"
+
           $null = gh release view $tag --json tagName 2>&1
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --draft --title $ver --generate-notes --target ${{ github.sha }}
           }
 
-      - name: Package Windows Installer & Portable EXE and upload to Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --publish always
-
-      - name: Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $ver = (node -p "require('./package.json').version").Trim()
-          $tag = "v$ver"
+          gh release upload $tag $setupFile $portableFile --clobber
           gh release edit $tag --draft=false --latest
 
       - name: Upload EXE artifacts to workflow run
@@ -78,4 +108,3 @@ jobs:
           name: wirewise-windows-desktop
           path: |
             release/*.exe
-            release/latest.yml
