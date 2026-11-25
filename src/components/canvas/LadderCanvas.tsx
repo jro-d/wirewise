@@ -13,6 +13,8 @@ import {
   verifyLadderAgainstPhysical,
   VerifyMessage,
 } from '../../core/ladderEngine';
+import { buildCrossRef, groupNetworks, traceOff, CrossRefContact, NetworkOutput, PathInput } from '../../core/ladderNetworks';
+import { LadderVertical } from './LadderVertical';
 import { momentaryPress } from '../devices/DeviceTerminals';
 import {
   Activity,
@@ -28,9 +30,42 @@ import {
   Radio,
   ZoomIn,
   ZoomOut,
+  X,
 } from 'lucide-react';
 
 type LadderMode = 'live' | 'target' | 'builder';
+type LadderLayout = 'vertical' | 'horizontal';
+const LAYOUT_KEY = 'wirewise-ladder-layout';
+const readLayout = (): LadderLayout => {
+  try {
+    return localStorage.getItem(LAYOUT_KEY) === 'horizontal' ? 'horizontal' : 'vertical';
+  } catch {
+    return 'vertical';
+  }
+};
+
+/** Plain-language reason a contact is open, for the "Why is it off?" trace */
+function describeOpen(el: LadderElement): string {
+  const where = `${el.tag} ${el.sub}`;
+  switch (el.contactKey) {
+    case 'aux_nc':
+      return `${where} is open because ${el.tag} is energized. This is the interlock doing its job.`;
+    case 'aux_no':
+      return `${where} is open because ${el.tag} is not pulled in, so it cannot seal in.`;
+    case 'start':
+    case 'fwd':
+    case 'rev':
+      return `${where} is open because the button is not pressed.`;
+    case 'stop':
+      return `${where} is open because STOP is pressed.`;
+    case 'estop':
+      return `${where} is open because the E-STOP is latched.`;
+    case 'trip_nc':
+      return `${where} is open because the overload relay has tripped.`;
+    default:
+      return `${where} is open (${el.kind === 'NC' ? 'normally closed, but actuated' : 'normally open and not actuated'}).`;
+  }
+}
 
 interface LadderCanvasProps {
   devices: ElectricalDevice[];
@@ -323,6 +358,18 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
   const [optionKey, setOptionKey] = useState<string>('');
   const [branchMode, setBranchMode] = useState(false);
   const [verify, setVerify] = useState<VerifyMessage[] | null>(null);
+  const [layout, setLayoutState] = useState<LadderLayout>(readLayout);
+  const [hoverDev, setHoverDev] = useState<string | null>(null);
+  const [focusEl, setFocusEl] = useState<{ id: string; nonce: number } | null>(null);
+  const [explainKey, setExplainKey] = useState<string | null>(null);
+  const setLayout = (l: LadderLayout) => {
+    setLayoutState(l);
+    try {
+      localStorage.setItem(LAYOUT_KEY, l);
+    } catch {
+      /* private mode: the choice just is not remembered */
+    }
+  };
 
   const phys: PhysicalLadder = useMemo(() => parsePhysicalLadder(devices, wires), [devices, wires]);
   const elementByKey = useMemo(() => {
@@ -372,6 +419,22 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
       rungId: r.id,
     }));
   }, [mode, phys, targetLadder, builderRungs]);
+
+  const networks = useMemo(
+    () => groupNetworks(views.map<PathInput>((v) => ({ key: v.key, label: v.label, pre: v.pre, post: v.post, output: v.output, rungId: v.rungId }))),
+    [views]
+  );
+  const crossRef = useMemo(() => buildCrossRef(networks, phys.elements), [networks, phys]);
+  const explainOut: NetworkOutput | null = useMemo(
+    () => networks.flatMap((n) => n.outputs).find((o) => o.key === explainKey) || null,
+    [networks, explainKey]
+  );
+  const trace = explainOut ? traceOff(explainOut.pre, explainOut.post, isClosed) : null;
+
+  const jumpToContact = (c: CrossRefContact) => {
+    setFocusEl({ id: c.elId, nonce: Date.now() });
+    window.setTimeout(() => setFocusEl((f) => (f && f.id === c.elId ? null : f)), 1800);
+  };
 
   // ── Builder operations ──
   const commit = (rungs: LadderRung[]) => {
@@ -512,7 +575,10 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
       onPatchDeviceState(dev.id, { closed: !dev.state.closed });
     }
   };
-  const onElHover = (el: LadderElement | null) => onHoverDevice?.(el?.deviceId || null);
+  const onElHover = (el: LadderElement | null) => {
+    setHoverDev(el?.deviceId || null);
+    onHoverDevice?.(el?.deviceId || null);
+  };
 
   // ── Layout ──
   const preWidths = views.map((v) => measure(v.pre).w);
@@ -677,6 +743,18 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
           >
             {railsLive ? '● CONTROL ENERGIZED' : isSimulating ? '○ CONTROL DEAD' : '○ EDIT MODE'}
           </span>
+          <div className="flex items-center bg-surface-sunken border border-border rounded-lg p-0.5" role="group" aria-label="Ladder layout">
+            {(['vertical', 'horizontal'] as const).map((l) => (
+              <button
+                key={l}
+                onClick={() => setLayout(l)}
+                title={l === 'vertical' ? 'IEC style: current paths run top to bottom between two rails' : 'NEMA / ANSI style: rungs run left to right'}
+                className={`px-2 h-7 rounded-md text-[11px] font-bold ${layout === l ? 'bg-surface text-ink shadow-sm' : 'text-ink-muted hover:bg-surface-sunken'}`}
+              >
+                {l === 'vertical' ? 'Paths' : 'Rungs'}
+              </button>
+            ))}
+          </div>
           <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))} className="w-7 h-7 rounded-md border border-border bg-surface flex items-center justify-center hover:bg-surface-sunken" title="Zoom out">
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
@@ -768,6 +846,37 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
             </div>
           </div>
         ) : (
+          layout === 'vertical' ? (
+            <LadderVertical
+              networks={networks}
+              crossRef={crossRef}
+              isClosed={isClosed}
+              loadEnergized={loadEnergized}
+              railsLive={railsLive}
+              isSimulating={isSimulating}
+              railTopLabel={`L1 · ${railVoltLabel}`}
+              railBottomLabel="L2 · control return"
+              lampColors={LAMP_COLORS}
+              zoom={zoom}
+              selectedElId={selElId}
+              selectedDeviceId={selectedDeviceId}
+              hoverDeviceId={hoverDev}
+              focusEl={focusEl}
+              explain={explainOut ? { outputKey: explainOut.key, culpritId: trace?.culprit?.id ?? null } : null}
+              selectedPathKey={mode === 'builder' ? views.find((v) => v.rungId === selRungId)?.key ?? null : null}
+              onElMouseDown={onElMouseDown}
+              onElHover={onElHover}
+              onXrefClick={jumpToContact}
+              onXrefHover={setHoverDev}
+              onExplain={(o) => setExplainKey((k) => (k === o.key ? null : o.key))}
+              onSelectPath={(o) => {
+                if (mode === 'builder' && o.rungId) {
+                  setSelRungId(o.rungId);
+                  setSelElId(null);
+                }
+              }}
+            />
+          ) : (
           <svg width={svgW * zoom} height={svgH * zoom} viewBox={`0 0 ${svgW} ${svgH}`} className="block">
             <defs>
               <pattern id="ladderGrid" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -786,11 +895,40 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
             </text>
             {parts}
           </svg>
+          )
         )}
       </div>
 
       {/* Legend / verification results */}
       <div className="shrink-0 border-t border-border bg-surface/95 px-3 py-2 max-h-[38%] overflow-auto">
+        {explainOut && trace && (
+          <div className="mb-2 rounded-lg border border-brand/40 bg-brand-soft/60 px-3 py-2" role="status">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[11px] font-black uppercase tracking-wider text-ink">Why is {explainOut.output?.tag} off?</span>
+              <span className="text-[11px] font-mono text-ink-muted">path {explainOut.path}</span>
+              <button onClick={() => setExplainKey(null)} className="ml-auto text-ink-muted hover:text-ink" aria-label="Close explanation">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <ol className="list-decimal pl-5 space-y-0.5 text-[12px] leading-snug text-ink">
+              {!railsLive ? (
+                <li>The control supply is dead. Check the transformer and its feeder breaker.</li>
+              ) : !trace.hasPath ? (
+                <li>No contact feeds this output. Check the wiring to its terminals.</li>
+              ) : trace.culprit ? (
+                <>
+                  <li>
+                    The path is cut at <b className="font-mono">{trace.culprit.tag} {trace.culprit.sub}</b>, the first open contact.
+                  </li>
+                  <li>{describeOpen(trace.culprit)}</li>
+                  {trace.openCount > 1 && <li>{trace.openCount - 1} more open contact{trace.openCount > 2 ? 's' : ''} on the closest path.</li>}
+                </>
+              ) : (
+                <li>Every contact on the closest path is closed, yet the output is off. Check the coil wiring or an injected fault.</li>
+              )}
+            </ol>
+          </div>
+        )}
         {verify ? (
           <div>
             <div className="flex items-center gap-2 mb-1.5">
@@ -826,7 +964,7 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
         ) : (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-mono text-ink-muted">
             <span className="flex items-center gap-1"><span className="w-4 h-[3px] bg-ok rounded" /> energized path / closed contact</span>
-            <span className="flex items-center gap-1"><span className="w-4 h-[3px] bg-danger rounded" /> voltage blocked by open contact</span>
+            <span className="flex items-center gap-1"><span className="w-4 h-[3px] bg-danger rounded" /> blocked: an NC contact holds the path open</span>
             <span className="flex items-center gap-1"><span className="w-4 h-[2px] bg-border-strong rounded" /> de-energized</span>
             <span>
               {mode === 'builder'
