@@ -401,16 +401,31 @@ export function rungToNode(rung: LadderRung): LadderNode {
   };
 }
 
-/** Convert a general series-parallel tree to the block model (one level of parallelism) */
-function nodeToBlocks(node: LadderNode, idPrefix: string): LadderRung['blocks'] {
-  const flat = (n: LadderNode): LadderElement[] =>
-    n.kind === 'el' ? [n.el] : n.items.flatMap(flat);
+/**
+ * Convert a general series-parallel tree to the block model (one level of parallelism).
+ *
+ * A parallel group nested inside a branch cannot be drawn in that model, so it is distributed into the outer
+ * group: (A + (B || C)) || D  becomes the branches [A,B], [A,C], [D]. Every series path stays the same, so the
+ * logic and the verification are unchanged. (Flattening it into one series would change the logic.)
+ */
+export function nodeToBlocks(node: LadderNode, idPrefix: string): LadderRung['blocks'] {
+  const alternatives = (n: LadderNode): LadderElement[][] => {
+    if (n.kind === 'el') return [[n.el]];
+    if (n.kind === 'parallel') return n.items.flatMap(alternatives);
+    let acc: LadderElement[][] = [[]];
+    for (const item of n.items) {
+      const next: LadderElement[][] = [];
+      for (const a of acc) for (const b of alternatives(item)) next.push([...a, ...b]);
+      acc = next;
+    }
+    return acc;
+  };
   const blocks: LadderRung['blocks'] = [];
   let i = 0;
   const visit = (n: LadderNode) => {
     if (n.kind === 'el') blocks.push({ id: `${idPrefix}_b${i++}`, branches: [[{ ...n.el, id: `${n.el.id}_${i}` }]] });
     else if (n.kind === 'series') n.items.forEach(visit);
-    else blocks.push({ id: `${idPrefix}_b${i++}`, branches: n.items.map(c => flat(c).map(el => ({ ...el, id: `${el.id}_${i}` }))) });
+    else blocks.push({ id: `${idPrefix}_b${i++}`, branches: alternatives(n).map((br) => br.map((el) => ({ ...el, id: `${el.id}_${i}` }))) });
   };
   visit(node);
   return blocks;

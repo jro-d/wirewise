@@ -19,6 +19,22 @@
   --wirewise-accent-sky: var(--probe);
 }
 
+/* Ladder / single-line: energized wires carry a moving dash (off for reduced motion) */
+@keyframes wire-flow {
+  to {
+    stroke-dashoffset: -13;
+  }
+}
+.wire-flow {
+  stroke-dasharray: 8 5;
+  animation: wire-flow 0.7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wire-flow {
+    animation: none;
+  }
+}
+
 @keyframes dash {
   from {
     stroke-dashoffset: 100;

@@ -16,6 +16,7 @@ import { DevicePropertiesPanel } from './components/layout/DevicePropertiesPanel
 import { LabSelectorModal } from './components/layout/LabSelectorModal';
 import { WiringCanvas } from './components/canvas/WiringCanvas';
 import { SchematicCanvas } from './components/canvas/SchematicCanvas';
+import { SingleLineCanvas } from './components/canvas/SingleLineCanvas';
 import { LadderCanvas } from './components/canvas/LadderCanvas';
 import { LadderRung } from './types/ladder';
 import { sound, playBuzzerBeep } from './utils/soundFx';
@@ -335,6 +336,29 @@ export const App: React.FC = () => {
     }
     return out;
   }, [faultLevels, project.devices]);
+
+  // Fault current per device for the single-line diagram (only when the fault-level overlay is on)
+  const faultByDevice = useMemo(
+    () => (faultLevels ? Object.fromEntries(Object.entries(faultLevels.byDevice).map(([id, l]) => [id, l.ik])) : undefined),
+    [faultLevels]
+  );
+  const renderSingleLine = () => (
+    <SingleLineCanvas
+      devices={project.devices}
+      wires={project.wires}
+      solved={solved}
+      faultByDevice={faultByDevice}
+      selectedDeviceId={selectedDeviceId}
+      onSelectDevice={(id) => flashDevice(id)}
+      onOpenLadder={() => setViewMode('ladder')}
+      hasControl={project.devices.some((d) => d.type === 'contactor_3p' || d.type === 'industrial_relay_dpdt')}
+      title={project.title || ''}
+      standard={standard}
+      voltage={project.gridVoltage}
+      frequency={project.gridFrequency}
+      classic={<SchematicCanvas devices={project.devices} wires={project.wires} solved={solved} />}
+    />
+  );
 
   // Run Live Code Compliance Analysis (static checks run in both modes)
   const report = useMemo(() => {
@@ -1434,13 +1458,7 @@ export const App: React.FC = () => {
             />
           )}
 
-          {viewMode === 'schematic' && (
-            <SchematicCanvas
-              devices={project.devices}
-              wires={project.wires}
-              solved={solved}
-            />
-          )}
+          {viewMode === 'schematic' && renderSingleLine()}
 
           {viewMode === 'plan' && (
             <PlanView project={project} onChange={(fn) => { if (!isViewOnly) setProject(fn); }} />
@@ -1540,11 +1558,7 @@ export const App: React.FC = () => {
                     headerRight={dualSwitch}
                   />
                 ) : (
-                  <SchematicCanvas
-                    devices={project.devices}
-                    wires={project.wires}
-                    solved={solved}
-                  />
+                  renderSingleLine()
                 )}
               </div>
             </div>

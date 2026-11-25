@@ -137,22 +137,28 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
     const c = el.address ? runtime.counters[el.address] : undefined;
     const bitOn = el.address && addressKind(el.address) !== 'MW' ? (addressKind(el.address) === 'T' ? !!runtime.timers[el.address]?.q : addressKind(el.address) === 'C' ? !!runtime.counters[el.address]?.q : !!runtime.bits[el.address]) : false;
     const selectedNow = selectedEl === el.id;
+    const forcedVal = el.address ? (el.address in forces.inputs ? forces.inputs[el.address] : el.address in forces.outputs ? forces.outputs[el.address] : undefined) : undefined;
     let body: React.ReactNode;
     if (isTimer(el.kind) || isCounter(el.kind) || el.kind === 'MOV' || el.kind === 'ADD') {
       body = (
         <div className="px-2 py-1 text-center">
-          <div className="text-[10px] font-bold">{el.kind} {el.address}</div>
-          <div className="text-[9px] opacity-80 font-mono">
-            {isTimer(el.kind) && (monitoring && t ? `${t.acc} / ${el.preset} ms` : `${el.preset} ms`)}
+          <div className="text-[11px] font-bold">{el.kind} {el.address}</div>
+          <div className="text-[11px] opacity-80 font-mono">
+            {isTimer(el.kind) && (monitoring && t ? `ET ${(t.acc / 1000).toFixed(1)} s · PT ${((el.preset || 0) / 1000).toFixed(1)} s` : `PT ${((el.preset || 0) / 1000).toFixed(1)} s`)}
             {isCounter(el.kind) && (monitoring && c ? `${c.acc} / ${el.preset}` : `PV ${el.preset}`)}
             {el.kind === 'MOV' && `${el.operandA} → ${el.address}`}
             {el.kind === 'ADD' && `${el.operandA} + ${el.operandB} → ${el.address}`}
           </div>
+          {isTimer(el.kind) && monitoring && t && el.preset ? (
+            <div className="mt-1 h-1.5 w-full rounded bg-surface-sunken overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={el.preset} aria-valuenow={Math.min(t.acc, el.preset)}>
+              <div className="h-full bg-ok" style={{ width: `${Math.min(100, (t.acc / el.preset) * 100)}%` }} />
+            </div>
+          ) : null}
         </div>
       );
     } else if (isCompare(el.kind)) {
       body = (
-        <div className="px-2 py-1 text-center text-[10px] font-mono font-bold">
+        <div className="px-2 py-1 text-center text-[11px] font-mono font-bold">
           {String(el.operandA)} {el.kind === 'EQ' ? '=' : el.kind === 'GT' ? '>' : '<'} {String(el.operandB)}
         </div>
       );
@@ -161,7 +167,10 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
       body = (
         <div className="px-2 py-1 text-center">
           <div className="text-sm font-mono font-bold leading-none">{glyph}</div>
-          <div className="text-[9px] font-mono mt-0.5">{el.address}</div>
+          <div className="text-[11px] font-mono mt-0.5">{el.address}</div>
+          {monitoring && el.address && addressKind(el.address) && addressKind(el.address) !== 'MW' && (
+            <span className={`inline-block mt-0.5 min-w-[22px] rounded-full px-1 text-[11px] font-mono font-bold ${bitOn ? 'bg-ok-soft text-ok' : 'bg-surface-sunken text-ink-muted'}`}>{bitOn ? 1 : 0}</span>
+          )}
         </div>
       );
     }
@@ -188,11 +197,16 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
           commit(addParallel(program, el.id, ne));
           setSelectedEl(ne.id);
         }}
-        className={`min-w-[78px] rounded border-2 text-xs transition ${color} ${selectedNow ? 'ring-2 ring-probe' : ''} ${rungPower && !monitoring ? '' : ''}`}
+        className={`relative min-w-[78px] rounded border-2 text-xs transition ${color} ${selectedNow ? 'ring-2 ring-probe' : ''} ${rungPower && !monitoring ? '' : ''}`}
         title={`${el.kind} ${el.address || ''}${sym ? ' · ' + sym : ''}${monitoring && addressKind(el.address) && addressKind(el.address) !== 'MW' ? (bitOn ? ' = 1' : ' = 0') : ''}`}
       >
         {body}
-        {sym && <div className="text-[9px] px-1 pb-0.5 text-ink-muted truncate max-w-[110px]">{sym}</div>}
+        {sym && <div className="text-[11px] px-1 pb-0.5 text-ink-muted truncate max-w-[110px]">{sym}</div>}
+        {forcedVal !== undefined && (
+          <span className="absolute -top-2 -right-2 rounded-full px-1.5 h-[18px] flex items-center text-[11px] font-bold font-mono" style={{ background: 'var(--warning-fill)', color: 'var(--ink)' }}>
+            F {forcedVal ? 1 : 0}
+          </span>
+        )}
       </button>
     );
   };
@@ -209,7 +223,7 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
         }}
         className={`rounded-md border px-2 py-2 mb-2 ${sel ? 'border-probe bg-surface-sunken' : 'border-border bg-surface'}`}
       >
-        <div className="flex items-center gap-2 mb-1 text-[10px] font-mono text-ink-muted">
+        <div className="flex items-center gap-2 mb-1 text-[11px] font-mono text-ink-muted">
           <span className="font-bold text-ink">{String(idx + 1).padStart(2, '0')}</span>
           <span>{r.label || ''}</span>
           {power && <span className="text-ok font-bold">● POWER</span>}
@@ -232,7 +246,7 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => inRung(r.id, e, 'series')}
-            className={`mx-1 w-16 h-10 rounded border border-dashed text-[9px] flex items-center justify-center text-ink-muted ${dragKind && !isOutputKind(dragKind) ? 'border-probe text-probe' : 'border-border'}`}
+            className={`mx-1 w-16 h-10 rounded border border-dashed text-[11px] flex items-center justify-center text-ink-muted ${dragKind && !isOutputKind(dragKind) ? 'border-probe text-probe' : 'border-border'}`}
             title="Drop a contact here to add it in series"
           >
             + contact
@@ -243,7 +257,7 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
             onDrop={(e) => inRung(r.id, e, 'output')}
             className={`rounded ${dragKind && isOutputKind(dragKind) ? 'ring-2 ring-probe' : ''}`}
           >
-            {r.output ? elBox(r.output, power) : <div className="w-20 h-10 rounded border border-dashed border-danger/60 text-[9px] flex items-center justify-center text-danger">output?</div>}
+            {r.output ? elBox(r.output, power) : <div className="w-20 h-10 rounded border border-dashed border-danger/60 text-[11px] flex items-center justify-center text-danger">output?</div>}
           </div>
           <div className={`w-4 h-0.5 ${power ? 'bg-ok' : 'bg-ink-muted/50'}`} />
           <div className={`w-1.5 self-stretch rounded ${power ? 'bg-ok' : 'bg-ink-muted/40'}`} />
@@ -266,6 +280,62 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
     onPatchDeviceState(plc.id, { plcForces: next });
   };
   const forcedCount = Object.keys(forces.inputs).length + Object.keys(forces.outputs).length;
+
+  const ioCard = (a: string, kind: 'inputs' | 'outputs') => {
+    const forced = a in forces[kind];
+    const on = !!runtime.bits[a];
+    const sym = program.symbols[a];
+    return (
+      <button
+        key={a}
+        disabled={!monitoring}
+        onClick={() => setForce(kind, a, forced ? (forces[kind][a] ? false : null) : true)}
+        title={`${a}${sym ? ' ' + sym : ''}${monitoring ? '. Click to force on, again to force off, again to release.' : '. Switch to Monitor to force.'}`}
+        className="shrink-0 w-[136px] h-[52px] rounded-lg border px-2.5 flex items-center gap-2 text-left disabled:cursor-default"
+        style={{ background: 'var(--console-raised)', borderColor: forced ? 'var(--warning-fill)' : 'var(--console-line)', color: 'var(--console-ink)' }}
+      >
+        {kind === 'inputs' ? (
+          <span className="w-9 h-5 rounded-full relative shrink-0" style={{ background: on ? 'var(--console-readout)' : '#3a424c' }} aria-hidden="true">
+            <span className="absolute top-0.5 w-4 h-4 rounded-full" style={{ left: on ? 18 : 2, background: on ? '#14181d' : '#fff' }} />
+          </span>
+        ) : (
+          <span
+            className="w-5 h-5 rounded-full shrink-0 border-2"
+            style={{ background: on ? 'var(--console-readout)' : 'transparent', borderColor: on ? 'var(--console-readout)' : '#4a525c', boxShadow: on ? '0 0 0 3px rgba(86,211,220,.25)' : undefined }}
+            aria-hidden="true"
+          />
+        )}
+        <span className="min-w-0">
+          <b className="block text-xs font-mono">{a}</b>
+          <span className="block text-[11px] font-mono truncate" style={{ color: 'var(--console-muted)' }}>{sym || '\u00a0'}</span>
+        </span>
+        {forced && (
+          <span className="ml-auto rounded-full px-1.5 h-[18px] flex items-center text-[11px] font-bold font-mono" style={{ background: 'var(--warning-fill)', color: 'var(--ink)' }}>
+            F {forces[kind][a] ? 1 : 0}
+          </span>
+        )}
+      </button>
+    );
+  };
+
+  // Symbol table: every mapped I/O address plus everything the program uses or names
+  const usedAddresses = new Set<string>(Object.keys(program.symbols));
+  for (const r of program.rungs) {
+    for (const b of r.blocks) for (const br of b.branches) for (const e of br) if (e.address) usedAddresses.add(e.address);
+    if (r.output?.address) usedAddresses.add(r.output.address);
+  }
+  const symbolRows = [
+    ...ALL_INPUTS.filter((a) => map.inputs[a]),
+    ...ALL_OUTPUTS.filter((a) => map.outputs[a]),
+    ...[...usedAddresses].filter((a) => addressKind(a) && !['I', 'Q'].includes(addressKind(a) as string)).sort(),
+  ];
+  const symbolValue = (a: string): { text: string; on: boolean } => {
+    const k = addressKind(a);
+    if (k === 'T') return { text: `${((runtime.timers[a]?.acc ?? 0) / 1000).toFixed(1)} s`, on: !!runtime.timers[a]?.q };
+    if (k === 'C') return { text: String(runtime.counters[a]?.acc ?? 0), on: !!runtime.counters[a]?.q };
+    if (k === 'MW') return { text: String(runtime.words[a] ?? 0), on: false };
+    return { text: runtime.bits[a] ? '1' : '0', on: !!runtime.bits[a] };
+  };
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-canvas text-ink">
@@ -309,10 +379,38 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
             <Play className="w-3 h-3" />Use my program
           </button>
         )}
-        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${userMode ? 'text-ok border-ok/50 bg-ok-soft' : 'text-ink-muted border-border'}`}>
+        <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border ${userMode ? 'text-ok border-ok/50 bg-ok-soft' : 'text-ink-muted border-border'}`}>
           {userMode ? (isSimulating ? `RUN · scan ${runtime.scans}` : 'USER PROGRAM') : `FIXED: ${plc.state.program || 'passthrough'}`}
         </span>
-        {forcedCount > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-danger text-surface animate-pulse">{forcedCount} FORCED</span>}
+        {forcedCount > 0 && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--warning-fill)', color: 'var(--ink)' }}>{forcedCount} FORCED</span>}
+      </div>
+
+      {/* I/O strip: inputs, outputs, forces and the scan indicator */}
+      <div
+        className="shrink-0 flex items-center gap-2 px-3 py-2 overflow-x-auto border-b"
+        style={{ background: 'var(--console)', borderColor: 'var(--console-line)', color: 'var(--console-ink)' }}
+        aria-label="PLC inputs and outputs"
+      >
+        <span className="text-[11px] font-mono font-bold tracking-wider shrink-0" style={{ color: 'var(--console-muted)' }}>INPUTS</span>
+        {ALL_INPUTS.filter((a) => map.inputs[a]).map((a) => ioCard(a, 'inputs'))}
+        <span className="text-[11px] font-mono font-bold tracking-wider shrink-0 ml-3" style={{ color: 'var(--console-muted)' }}>OUTPUTS</span>
+        {ALL_OUTPUTS.filter((a) => map.outputs[a]).map((a) => ioCard(a, 'outputs'))}
+        <div className="ml-auto pl-3 flex items-center gap-3 shrink-0 text-[11px] font-mono" style={{ color: 'var(--console-muted)' }}>
+          {forcedCount > 0 && (
+            <button
+              onClick={() => onPatchDeviceState(plc.id, { plcForces: { inputs: {}, outputs: {} } })}
+              className="rounded-full px-2 h-6 font-bold"
+              style={{ background: 'var(--warning-fill)', color: 'var(--ink)' }}
+              title="Release every forced input and output"
+            >
+              {forcedCount} forced · release
+            </button>
+          )}
+          <span className="flex items-center gap-1.5">
+            <span className={`w-2.5 h-2.5 rounded-full ${userMode && isSimulating ? 'animate-pulse' : ''}`} style={{ background: userMode && isSimulating ? 'var(--console-readout)' : '#4a525c' }} />
+            {userMode && isSimulating ? `RUN · scan ${runtime.scans} · ${program.scanMs} ms` : userMode ? 'STOPPED' : 'FIXED PROGRAM'}
+          </span>
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 flex">
@@ -320,7 +418,7 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
         <aside className="w-36 shrink-0 border-r border-border bg-surface overflow-y-auto p-2 text-[11px]">
           {PALETTE.map((g) => (
             <div key={g.title} className="mb-3">
-              <div className="font-bold uppercase tracking-wider text-[9px] text-ink-muted mb-1">{g.title}</div>
+              <div className="font-bold uppercase tracking-wider text-[11px] text-ink-muted mb-1">{g.title}</div>
               <div className="grid grid-cols-2 gap-1">
                 {g.kinds.map((k) => (
                   <div
@@ -348,7 +446,7 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
               </div>
             </div>
           ))}
-          <div className="text-[9px] text-ink-muted leading-snug">
+          <div className="text-[11px] text-ink-muted leading-snug">
             Drop a contact on an existing contact to put it in parallel. Click a rung, then a palette item, to add it without dragging.
           </div>
         </aside>
@@ -364,7 +462,7 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
           {program.rungs.map((r, i) => rungView(r, i))}
           {issues.length > 0 && (
             <div className="mt-3 rounded-md border border-border bg-surface p-2">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-ink-muted mb-1">Checks ({issues.length})</div>
+              <div className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-1">Checks ({issues.length})</div>
               <ul className="space-y-0.5">
                 {issues.map((it, i) => (
                   <li key={i} className={`text-[11px] ${it.severity === 'error' ? 'text-danger' : 'text-warning'}`}>
@@ -381,7 +479,7 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
           {el ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <div className="font-bold uppercase tracking-wider text-[10px] text-ink-muted">{el.kind} element</div>
+                <div className="font-bold uppercase tracking-wider text-[11px] text-ink-muted">{el.kind} element</div>
                 <button className="text-danger hover:underline flex items-center gap-1" onClick={() => { commit(removeElement(program, el.id)); setSelectedEl(null); }}><Trash2 className="w-3 h-3" />Delete</button>
               </div>
               <select className={field} value={el.kind} onChange={(e) => patchEl({ kind: e.target.value as LadderElementKind })}>
@@ -389,7 +487,7 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
               </select>
               {!isCompare(el.kind) && (
                 <label className="block">
-                  <span className="text-[10px] text-ink-muted">Address</span>
+                  <span className="text-[11px] text-ink-muted">Address</span>
                   <select className={field} value={el.address || ''} onChange={(e) => patchEl({ address: e.target.value })}>
                     {addressOptions(el.kind).map((a) => <option key={a} value={a}>{a}{program.symbols[a] ? `  ${program.symbols[a]}` : ''}</option>)}
                   </select>
@@ -397,7 +495,7 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
               )}
               {el.address && !isCompare(el.kind) && (
                 <label className="block">
-                  <span className="text-[10px] text-ink-muted">Symbol name for {el.address}</span>
+                  <span className="text-[11px] text-ink-muted">Symbol name for {el.address}</span>
                   <input
                     className={field}
                     value={program.symbols[el.address] || ''}
@@ -408,13 +506,13 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
               )}
               {(isTimer(el.kind) || isCounter(el.kind)) && (
                 <label className="block">
-                  <span className="text-[10px] text-ink-muted">{isTimer(el.kind) ? 'Preset (ms)' : 'Preset (counts)'}</span>
+                  <span className="text-[11px] text-ink-muted">{isTimer(el.kind) ? 'Preset (ms)' : 'Preset (counts)'}</span>
                   <input type="number" min={1} className={field} value={el.preset ?? ''} onChange={(e) => patchEl({ preset: Number(e.target.value) })} />
                 </label>
               )}
               {isCounter(el.kind) && (
                 <label className="block">
-                  <span className="text-[10px] text-ink-muted">{el.kind === 'CTU' ? 'Reset bit' : 'Load bit'}</span>
+                  <span className="text-[11px] text-ink-muted">{el.kind === 'CTU' ? 'Reset bit' : 'Load bit'}</span>
                   <select className={field} value={el.resetAddress || ''} onChange={(e) => patchEl({ resetAddress: e.target.value || undefined })}>
                     <option value="">none</option>
                     {[...ALL_INPUTS, ...ALL_MEMORY_BITS].map((a) => <option key={a} value={a}>{a}</option>)}
@@ -424,12 +522,12 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
               {(isCompare(el.kind) || el.kind === 'MOV' || el.kind === 'ADD') && (
                 <>
                   <label className="block">
-                    <span className="text-[10px] text-ink-muted">A (number or MWn / Tn / Cn)</span>
+                    <span className="text-[11px] text-ink-muted">A (number or MWn / Tn / Cn)</span>
                     <input className={field} value={String(el.operandA ?? '')} onChange={(e) => patchEl({ operandA: numOrAddr(e.target.value) })} />
                   </label>
                   {el.kind !== 'MOV' && (
                     <label className="block">
-                      <span className="text-[10px] text-ink-muted">B</span>
+                      <span className="text-[11px] text-ink-muted">B</span>
                       <input className={field} value={String(el.operandB ?? '')} onChange={(e) => patchEl({ operandB: numOrAddr(e.target.value) })} />
                     </label>
                   )}
@@ -438,7 +536,7 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
             </div>
           ) : rung ? (
             <div className="space-y-2">
-              <div className="font-bold uppercase tracking-wider text-[10px] text-ink-muted">Rung {program.rungs.findIndex((r) => r.id === rung.id) + 1}</div>
+              <div className="font-bold uppercase tracking-wider text-[11px] text-ink-muted">Rung {program.rungs.findIndex((r) => r.id === rung.id) + 1}</div>
               <input className={field} value={rung.label || ''} onChange={(e) => commit(updateRung(program, rung.id, { label: e.target.value }))} placeholder="Rung comment" />
               <div className="flex gap-1">
                 <button className={btn} onClick={() => commit(moveRung(program, rung.id, -1))}><ArrowUp className="w-3 h-3" />Up</button>
@@ -450,55 +548,31 @@ export const PlcEditor: React.FC<PlcEditorProps> = ({ devices, selectedDeviceId,
             <div className="text-ink-muted">Select an element or a rung to edit it.</div>
           )}
 
-          {/* I/O monitor and forcing */}
+          {/* Symbol table (values are live in Monitor mode) */}
           <div>
-            <div className="font-bold uppercase tracking-wider text-[10px] text-ink-muted mb-1">Inputs I0.x {monitoring ? '(live)' : ''}</div>
-            <div className="grid grid-cols-4 gap-1">
-              {ALL_INPUTS.filter((a) => map.inputs[a]).map((a) => {
-                const forced = a in forces.inputs;
-                const on = !!runtime.bits[a];
+            <div className="font-bold uppercase tracking-wider text-[11px] text-ink-muted mb-1">Symbol table</div>
+            <div className="divide-y divide-border border-y border-border">
+              {symbolRows.map((a) => {
+                const v = symbolValue(a);
+                const forced = a in forces.inputs || a in forces.outputs;
                 return (
-                  <button
-                    key={a}
-                    disabled={!monitoring}
-                    onClick={() => setForce('inputs', a, forced ? (forces.inputs[a] ? false : null) : true)}
-                    title={`${a}${program.symbols[a] ? ' ' + program.symbols[a] : ''}. In Monitor mode click to force on, again to force off, again to release.`}
-                    className={`py-1 rounded border text-[10px] font-mono font-bold ${forced ? 'bg-danger text-surface border-danger' : on ? 'bg-ok-soft text-ok border-ok' : 'bg-surface-sunken border-border'}`}
-                  >
-                    {a.slice(2)}{forced ? '*' : ''}
-                  </button>
+                  <div key={a} className="flex items-center gap-2 h-7 text-[11px] font-mono">
+                    <span className="w-9 text-ink-muted">{a}</span>
+                    <span className="flex-1 truncate">{program.symbols[a] || ''}</span>
+                    {forced && <span className="rounded-full px-1.5 text-[11px] font-bold" style={{ background: 'var(--warning-fill)', color: 'var(--ink)' }}>F</span>}
+                    <span className={`min-w-[28px] text-center rounded-full px-1.5 font-bold ${monitoring && v.on ? 'bg-ok-soft text-ok' : 'bg-surface-sunken text-ink-muted'}`}>{monitoring ? v.text : '-'}</span>
+                  </div>
                 );
               })}
             </div>
-            <div className="font-bold uppercase tracking-wider text-[10px] text-ink-muted mt-2 mb-1">Outputs Q0.x {monitoring ? '(live)' : ''}</div>
-            <div className="grid grid-cols-4 gap-1">
-              {ALL_OUTPUTS.filter((a) => map.outputs[a]).map((a) => {
-                const forced = a in forces.outputs;
-                const on = !!runtime.bits[a];
-                return (
-                  <button
-                    key={a}
-                    disabled={!monitoring}
-                    onClick={() => setForce('outputs', a, forced ? (forces.outputs[a] ? false : null) : true)}
-                    title={`${a}${program.symbols[a] ? ' ' + program.symbols[a] : ''}`}
-                    className={`py-1 rounded border text-[10px] font-mono font-bold ${forced ? 'bg-danger text-surface border-danger' : on ? 'bg-ok-soft text-ok border-ok' : 'bg-surface-sunken border-border'}`}
-                  >
-                    {a.slice(2)}{forced ? '*' : ''}
-                  </button>
-                );
-              })}
-            </div>
-            {forcedCount > 0 && (
-              <button className={`${btn} mt-2 w-full justify-center text-danger`} onClick={() => onPatchDeviceState(plc.id, { plcForces: { inputs: {}, outputs: {} } })}>Release all forces</button>
-            )}
-            <div className="text-[9px] text-ink-muted mt-2 leading-snug">
-              * = forced. Forcing overrides the real input or the program output and is shown in red. Release before you trust the logic.
+            <div className="text-[11px] text-ink-muted mt-2 leading-snug">
+              F = forced. Use the strip above in Monitor mode to force an input or output, and release it before you trust the logic.
             </div>
           </div>
 
           <div>
-            <div className="font-bold uppercase tracking-wider text-[10px] text-ink-muted mb-1">Memory</div>
-            <div className="font-mono text-[10px] space-y-0.5">
+            <div className="font-bold uppercase tracking-wider text-[11px] text-ink-muted mb-1">Memory</div>
+            <div className="font-mono text-[11px] space-y-0.5">
               <div>M: {ALL_MEMORY_BITS.map((a) => (runtime.bits[a] ? '1' : '0')).join('')}</div>
               {ALL_WORDS.map((a) => <div key={a}>{a} = {runtime.words[a] ?? 0}</div>)}
             </div>
