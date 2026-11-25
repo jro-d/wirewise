@@ -408,13 +408,21 @@ export const LadderVertical: React.FC<LadderVerticalProps> = (props) => {
 
   const layout = useMemo(() => {
     const info = networks.map((net) => {
-      const preCols = Math.max(1, measure(net.pre).h);
-      const preRows = measure(net.pre).w;
-      const outs = net.outputs.map((o) => ({ o, cols: Math.max(1, measure(o.post).h), rows: measure(o.post).w }));
-      const outCols = outs.reduce((a, b) => a + b.cols, 0);
-      const cols = Math.max(preCols, outCols, 1);
-      const rows = preRows + 1 + Math.max(0, ...outs.map((x) => x.rows));
-      return { net, preCols, preRows, outs, outCols, cols, rows };
+      const trunkCols = Math.max(1, measure(net.pre).h);
+      const trunkRows = measure(net.pre).w;
+      const branches = net.branches.map((br) => {
+        const restCols = Math.max(1, measure(br.rest).h);
+        const restRows = measure(br.rest).w;
+        const outs = br.outputs.map((o) => ({ o, cols: Math.max(1, measure(o.post).h), rows: measure(o.post).w }));
+        const outCols = outs.reduce((a, b) => a + b.cols, 0);
+        const cols = Math.max(restCols, outCols, 1);
+        const rows = restRows + 1 + Math.max(0, ...outs.map((x) => x.rows));
+        return { br, restRows, outs, outCols, cols, rows };
+      });
+      const sumCols = branches.reduce((a, b) => a + b.cols, 0);
+      const cols = Math.max(trunkCols, sumCols, 1);
+      const rows = trunkRows + Math.max(...branches.map((b) => b.rows));
+      return { net, trunkRows, branches, sumCols, cols, rows, outputCount: net.outputs.length };
     });
     const maxRows = Math.max(2, ...info.map((i) => i.rows));
     let x = LEFT;
@@ -431,61 +439,76 @@ export const LadderVertical: React.FC<LadderVerticalProps> = (props) => {
 
   const ctxParts: React.ReactNode[] = [];
   const pos = new Map<string, { x: number; y: number }>();
-  layout.placed.forEach((n) => {
+  layout.placed.forEach((n, netIndex) => {
     const ctx: Ctx = { parts: ctxParts, x0: n.x0, isClosed: props.isClosed, props, pos, keyPrefix: n.net.id };
+    const id = n.net.id;
     const trunkX = colX(ctx, n.cols / 2);
-    // pre contacts, centred over the network
-    const pre = drawNode(ctx, n.net.pre, 0, n.cols, 0, props.railsLive, `${n.net.id}-pre`);
-    const preOut = n.preRows === 0 ? props.railsLive : pre.out;
-    if (n.preRows === 0) wire(ctx, `${n.net.id}-rail`, trunkX, TOP_Y, trunkX, TOP_Y, preOut);
-    dot(ctx, `${n.net.id}-rail-dot`, trunkX, TOP_Y, props.railsLive);
+    // the shared trunk, centred over the network
+    const trunk = drawNode(ctx, n.net.pre, 0, n.cols, 0, props.railsLive, `${id}-pre`);
+    const trunkOut = n.trunkRows === 0 ? props.railsLive : trunk.out;
+    dot(ctx, `${id}-rail-dot`, trunkX, TOP_Y, props.railsLive);
 
-    const shift = (n.cols - n.outCols) / 2;
-    let off = shift;
-    const centres: number[] = [];
-    n.outs.forEach((x) => {
-      centres.push(colX(ctx, off + x.cols / 2));
-      off += x.cols;
+    let sb = (n.cols - n.sumCols) / 2;
+    const branchCentres = n.branches.map((b) => {
+      const c = colX(ctx, sb + b.cols / 2);
+      sb += b.cols;
+      return c;
     });
-    if (n.outs.length > 1) {
-      const yBar = edgeY(n.preRows);
-      wire(ctx, `${n.net.id}-split`, Math.min(...centres, trunkX), yBar, Math.max(...centres, trunkX), yBar, preOut);
-      dot(ctx, `${n.net.id}-split-dot`, trunkX, yBar, preOut);
-      centres.forEach((cx2, i) => dot(ctx, `${n.net.id}-split-${i}`, cx2, yBar, preOut));
+    if (n.branches.length > 1) {
+      const yBar = edgeY(n.trunkRows);
+      wire(ctx, `${id}-split`, Math.min(...branchCentres, trunkX), yBar, Math.max(...branchCentres, trunkX), yBar, trunkOut);
+      dot(ctx, `${id}-split-dot`, trunkX, yBar, trunkOut);
+      branchCentres.forEach((cx2, i) => dot(ctx, `${id}-split-${i}`, cx2, yBar, trunkOut));
     }
-    // header cells: one per output
-    off = shift;
-    n.outs.forEach((x) => {
-      const hx = n.outs.length === 1 ? n.x0 : colX(ctx, off);
-      const hw = n.outs.length === 1 ? n.cols * COLW : x.cols * COLW;
-      const sel = props.selectedPathKey === x.o.key;
-      ctxParts.push(
-        <g key={`${x.o.key}-hdr`} className="cursor-pointer" onMouseDown={() => props.onSelectPath?.(x.o)}>
-          <rect x={hx + 4} y={HDR_Y} width={hw - 8} height={HDR_H} rx={8} fill="var(--surface)" stroke={sel ? 'var(--probe)' : 'var(--border)'} strokeWidth={sel ? 2 : 1} />
-          <rect x={hx + 14} y={HDR_Y + 10} width={24} height={24} rx={12} fill={n.outs.length > 1 ? 'var(--surface-sunken)' : 'var(--brand-soft)'} />
-          <text x={hx + 26} y={HDR_Y + 27} textAnchor="middle" fontSize={13} fontWeight={700} fill="var(--ink)" fontFamily="var(--font-mono)">{x.o.path}</text>
-          <text x={hx + 46} y={HDR_Y + 20} fontSize={12} fontWeight={600} fill="var(--ink)">{x.o.label}</text>
-          <text x={hx + 46} y={HDR_Y + 35} fontSize={11} fill="var(--ink-muted)" fontFamily="var(--font-mono)">
-            {n.outs.length > 1 ? `network ${layout.placed.indexOf(n) + 1}` : x.o.output?.sub || ''}
-          </text>
-        </g>
-      );
-      off += x.cols;
-    });
-    // outputs and what follows them
-    off = shift;
-    n.outs.forEach((x, i) => {
-      const cx2 = centres[i];
-      const energized = props.loadEnergized(x.o.output, preOut) && props.railsLive;
-      drawOutput(ctx, x.o, cx2, n.preRows, preOut, energized);
-      const post = drawNode(ctx, x.o.post, off, x.cols, n.preRows + 1, energized, `${x.o.key}-post`);
-      const endRow = n.preRows + 1 + post.rows;
-      const tailOn = x.rows === 0 ? energized : post.out;
-      wire(ctx, `${x.o.key}-tail`, cx2, edgeY(endRow), cx2, railY, tailOn);
-      dot(ctx, `${x.o.key}-tail-dot`, cx2, railY, tailOn);
-      // cross-reference table under the coil, to the right of its wire
-      ctxParts.push(<XrefTable key={`${x.o.key}-xref`} ctx={ctx} out={x.o} x={cx2 + 14} y={railY - XREF_H + 14} />);
-      off += x.cols;
+
+    sb = (n.cols - n.sumCols) / 2;
+    n.branches.forEach((b, bi) => {
+      const xb = branchCentres[bi];
+      // contacts only this branch has
+      const rest = drawNode(ctx, b.br.rest, sb, b.cols, n.trunkRows, trunkOut, `${id}-b${bi}`);
+      const restOut = b.restRows === 0 ? trunkOut : rest.out;
+      const row0 = n.trunkRows + b.restRows;
+      let off = sb + (b.cols - b.outCols) / 2;
+      const centres = b.outs.map((x) => {
+        const c = colX(ctx, off + x.cols / 2);
+        off += x.cols;
+        return c;
+      });
+      if (b.outs.length > 1) {
+        const yBar = edgeY(row0);
+        wire(ctx, `${id}-b${bi}-osplit`, Math.min(...centres, xb), yBar, Math.max(...centres, xb), yBar, restOut);
+        dot(ctx, `${id}-b${bi}-osplit-dot`, xb, yBar, restOut);
+        centres.forEach((cx2, i) => dot(ctx, `${id}-b${bi}-osplit-${i}`, cx2, yBar, restOut));
+      }
+      off = sb + (b.cols - b.outCols) / 2;
+      b.outs.forEach((x, i) => {
+        const cx2 = centres[i];
+        const hx = n.outputCount === 1 ? n.x0 : colX(ctx, off);
+        const hw = n.outputCount === 1 ? n.cols * COLW : x.cols * COLW;
+        const sel = props.selectedPathKey === x.o.key;
+        ctxParts.push(
+          <g key={`${x.o.key}-hdr`} className="cursor-pointer" onMouseDown={() => props.onSelectPath?.(x.o)}>
+            <rect x={hx + 4} y={HDR_Y} width={hw - 8} height={HDR_H} rx={8} fill="var(--surface)" stroke={sel ? 'var(--probe)' : 'var(--border)'} strokeWidth={sel ? 2 : 1} />
+            <rect x={hx + 14} y={HDR_Y + 10} width={24} height={24} rx={12} fill={n.outputCount > 1 ? 'var(--surface-sunken)' : 'var(--brand-soft)'} />
+            <text x={hx + 26} y={HDR_Y + 27} textAnchor="middle" fontSize={13} fontWeight={700} fill="var(--ink)" fontFamily="var(--font-mono)">{x.o.path}</text>
+            <text x={hx + 46} y={HDR_Y + 20} fontSize={12} fontWeight={600} fill="var(--ink)">{x.o.label}</text>
+            <text x={hx + 46} y={HDR_Y + 35} fontSize={11} fill="var(--ink-muted)" fontFamily="var(--font-mono)">
+              {n.outputCount > 1 ? `network ${netIndex + 1}` : x.o.output?.sub || ''}
+            </text>
+          </g>
+        );
+        const energized = props.loadEnergized(x.o.output, restOut) && props.railsLive;
+        drawOutput(ctx, x.o, cx2, row0, restOut, energized);
+        const post = drawNode(ctx, x.o.post, off, x.cols, row0 + 1, energized, `${x.o.key}-post`);
+        const endRow = row0 + 1 + post.rows;
+        const tailOn = x.rows === 0 ? energized : post.out;
+        wire(ctx, `${x.o.key}-tail`, cx2, edgeY(endRow), cx2, railY, tailOn);
+        dot(ctx, `${x.o.key}-tail-dot`, cx2, railY, tailOn);
+        // cross-reference table under the coil, to the right of its wire
+        ctxParts.push(<XrefTable key={`${x.o.key}-xref`} ctx={ctx} out={x.o} x={cx2 + 14} y={railY - XREF_H + 14} />);
+        off += x.cols;
+      });
+      sb += b.cols;
     });
   });
 

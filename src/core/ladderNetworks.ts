@@ -21,10 +21,21 @@ export interface NetworkOutput extends PathInput {
   path: number;
 }
 
-/** A shared trunk (`pre`) with one or more outputs hanging from it. */
+/** Contacts after the trunk that belong to one or more outputs (one column group under the split bar) */
+export interface NetworkBranch {
+  rest: LadderNode;
+  outputs: NetworkOutput[];
+}
+
+/**
+ * A shared trunk (`pre`) that splits into branches. Each branch has its own contacts (`rest`) and one or more
+ * outputs. A plain rung is a network with one branch whose `rest` is empty.
+ */
 export interface LadderNetwork {
   id: string;
   pre: LadderNode;
+  branches: NetworkBranch[];
+  /** Every output of every branch, in drawing order */
   outputs: NetworkOutput[];
 }
 
@@ -43,24 +54,70 @@ export function nodeSignature(node: LadderNode): string {
   return kids.length === 1 ? kids[0] : `P(${[...kids].sort().join('|')})`;
 }
 
+const seriesItems = (n: LadderNode): LadderNode[] =>
+  n.kind === 'series' ? n.items.flatMap(seriesItems) : [n];
+const EMPTY: LadderNode = { kind: 'series', items: [] };
+const MAX_BRANCHES = 4;
+
+interface Unit {
+  items: LadderNode[];
+  sigs: string[];
+  outs: PathInput[];
+  mergeable: boolean;
+}
+
 /**
- * Group outputs that share exactly the same contacts (and have nothing after the output) into one network:
- * a RUN lamp in parallel with its coil becomes one network with two outputs.
+ * Group outputs into networks:
+ *  1. outputs with exactly the same contacts (a RUN lamp beside its coil) share one branch;
+ *  2. branches that start with the same contacts (STOP and OLR of a forward/reverse starter) share one trunk.
  */
 export function groupNetworks(paths: PathInput[]): LadderNetwork[] {
-  const networks: LadderNetwork[] = [];
-  const bySig = new Map<string, LadderNetwork>();
+  const units: Unit[] = [];
+  const bySig = new Map<string, Unit>();
   for (const p of paths) {
     const sig = nodeSignature(p.pre);
     const groupable = p.output !== null && isEmptyNode(p.post) && sig !== '';
     const existing = groupable ? bySig.get(sig) : undefined;
     if (existing) {
-      existing.outputs.push({ ...p, path: 0 });
+      existing.outs.push(p);
       continue;
     }
-    const net: LadderNetwork = { id: `net_${networks.length}_${p.key}`, pre: p.pre, outputs: [{ ...p, path: 0 }] };
-    networks.push(net);
-    if (groupable) bySig.set(sig, net);
+    const items = seriesItems(p.pre).filter((i) => nodeSignature(i) !== '');
+    const u: Unit = { items, sigs: items.map(nodeSignature), outs: [p], mergeable: groupable && items.length > 0 };
+    units.push(u);
+    if (groupable) bySig.set(sig, u);
+  }
+
+  const networks: LadderNetwork[] = [];
+  const taken = new Set<Unit>();
+  const toOutputs = (ps: PathInput[]): NetworkOutput[] => ps.map((p) => ({ ...p, path: 0 }));
+  for (const u of units) {
+    if (taken.has(u)) continue;
+    taken.add(u);
+    const group = [u];
+    if (u.mergeable) {
+      for (const v of units) {
+        if (group.length >= MAX_BRANCHES) break;
+        if (!taken.has(v) && v.mergeable && v.sigs[0] === u.sigs[0]) {
+          group.push(v);
+          taken.add(v);
+        }
+      }
+    }
+    if (group.length === 1) {
+      const outs = toOutputs(u.outs);
+      networks.push({ id: `net_${networks.length}_${u.outs[0].key}`, pre: u.outs[0].pre, branches: [{ rest: EMPTY, outputs: outs }], outputs: outs });
+      continue;
+    }
+    let lcp = Math.min(...group.map((g) => g.sigs.length));
+    for (let i = 0; i < lcp; i++) if (!group.every((g) => g.sigs[i] === group[0].sigs[i])) { lcp = i; break; }
+    const branches: NetworkBranch[] = group.map((g) => ({ rest: { kind: 'series', items: g.items.slice(lcp) }, outputs: toOutputs(g.outs) }));
+    networks.push({
+      id: `net_${networks.length}_${u.outs[0].key}`,
+      pre: { kind: 'series', items: group[0].items.slice(0, lcp) },
+      branches,
+      outputs: branches.flatMap((b) => b.outputs),
+    });
   }
   let n = 0;
   for (const net of networks) for (const o of net.outputs) o.path = ++n;
@@ -163,7 +220,11 @@ export function buildCrossRef(networks: LadderNetwork[], elements: PhysicalEleme
   for (const net of networks) {
     const first = net.outputs[0]?.path ?? 0;
     walkElements(net.pre).forEach((el) => addContact(el, first));
-    for (const o of net.outputs) walkElements(o.post).forEach((el) => addContact(el, o.path));
+    for (const b of net.branches) {
+      const bp = b.outputs[0]?.path ?? first;
+      walkElements(b.rest).forEach((el) => addContact(el, bp));
+      for (const o of b.outputs) walkElements(o.post).forEach((el) => addContact(el, o.path));
+    }
   }
 
   const unusedCoils: string[] = [];

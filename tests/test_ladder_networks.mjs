@@ -37,6 +37,32 @@ console.log('\n--- Networks: a lamp in parallel with its coil shares one trunk -
 }
 console.log('✓ branching outputs');
 
+console.log('\n--- Forward/reverse: one network with a shared STOP and OLR trunk ---');
+{
+  const stop = el('NC', 'STOP', '1-2'), olr = el('NC', 'OLR', '95-96');
+  const fwdPre = series(leaf(olr), leaf(stop), parallel(leaf(el('NO', 'FWD', '3-4')), leaf(el('NO', 'KM1', '13-14'))), leaf(el('NC', 'KM2', '21-22')));
+  const revPre = series(leaf(olr), leaf(stop), parallel(leaf(el('NO', 'REV', '5-6')), leaf(el('NO', 'KM2', '13-14'))), leaf(el('NC', 'KM1', '21-22')));
+  const mk = (key, pre, out) => ({ key, label: out.tag, pre, post: series(), output: out });
+  const nets = groupNetworks([
+    mk('a', fwdPre, el('COIL', 'KM1')),
+    mk('b', fwdPre, el('LAMP', 'PL_FWD')),
+    mk('c', revPre, el('COIL', 'KM2')),
+    mk('d', revPre, el('LAMP', 'PL_REV')),
+    mk('e', series(leaf(el('NO', 'OLR', '97-98'))), el('LAMP', 'PL_FAULT')),
+  ]);
+  assert.equal(nets.length, 2, 'FWD and REV share one network, the fault lamp has its own');
+  const fr = nets[0];
+  assert.deepEqual(treePaths(fr.pre).map((p) => p.map((e) => e.tag).join('>')), ['OLR>STOP'], 'trunk is the common STOP and OLR');
+  assert.equal(fr.branches.length, 2);
+  assert.deepEqual(fr.branches.map((b) => b.outputs.map((o) => o.output.tag)), [['KM1', 'PL_FWD'], ['KM2', 'PL_REV']]);
+  assert.deepEqual(fr.outputs.map((o) => o.path), [1, 2, 3, 4]);
+  // every output still sees the same contacts end to end
+  const full = (b) => treePaths({ kind: 'series', items: [fr.pre, b.rest] }).map((p) => p.map((e) => e.tag + e.sub).sort().join('+')).sort();
+  assert.deepEqual(full(fr.branches[0]), treePaths(fwdPre).map((p) => p.map((e) => e.tag + e.sub).sort().join('+')).sort());
+  assert.deepEqual(full(fr.branches[1]), treePaths(revPre).map((p) => p.map((e) => e.tag + e.sub).sort().join('+')).sort());
+}
+console.log('✓ common prefix becomes the trunk, branches keep their own contacts');
+
 console.log('\n--- Live ladder from the wiring + cross-reference ---');
 {
   const phys = parsePhysicalLadder(dolDevices, dolWires);
