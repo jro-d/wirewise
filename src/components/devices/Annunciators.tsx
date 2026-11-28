@@ -3,7 +3,7 @@ import {
   Bay, DeviceProps, Face, Housing, Mono, Nameplate, Silk,
   Terminals, TermIds, act, deviceTag, makePatch,
 } from './kit';
-import { playBuzzerBeep } from '../../utils/soundFx';
+import { playSound } from '../../utils/soundFx';
 
 const COLORS: Record<string, string> = { red: '#ef4444', amber: '#f59e0b', green: '#22c55e', blue: '#3b82f6', white: '#f8fafc' };
 const supplyText = (state: Record<string, any>) => (state.supply === 'dc24' ? '24 V DC' : '230 V AC');
@@ -17,8 +17,9 @@ export const BuzzerDevice: React.FC<DeviceProps> = (props) => {
   const muted = !!state.muted;
   React.useEffect(() => {
     if (!active || muted) return;
-    playBuzzerBeep();
-    const id = window.setInterval(playBuzzerBeep, 600);
+    const beep = () => playSound('beep');
+    beep();
+    const id = window.setInterval(beep, 600);
     return () => window.clearInterval(id);
   }, [active, muted]);
   const cx = W / 2;

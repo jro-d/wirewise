@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { DesktopAppInfo, DesktopUpdateStatus } from '../types/desktop';
+import type { DesktopAppInfo, DesktopUpdateStatus, OpenedProjectFile } from '../types/desktop';
 
 export function isTauriDesktop(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -64,5 +64,8 @@ export function initDesktopBridge(): void {
       listenEvent<void>('desktop:open-update-logs', () => callback()),
     onOpenStandardsNotice: (callback: () => void) =>
       listenEvent<void>('desktop:open-standards-notice', () => callback()),
+    takeOpenedFile: () => invoke<OpenedProjectFile | null>('desktop_take_opened_file'),
+    onOpenFile: (callback: () => void) =>
+      listenEvent<void>('desktop:open-file', () => callback()),
   };
 }

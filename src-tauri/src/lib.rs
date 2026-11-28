@@ -2,7 +2,7 @@ use futures_util::StreamExt;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
@@ -13,6 +13,8 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 
 const GITHUB_RELEASES_API: &str = "https://api.github.com/repos/jro-d/wirewise/releases/latest";
+const PROJECT_EXTENSION: &str = "wirewise";
+const MAX_PROJECT_BYTES: u64 = 20 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +53,74 @@ struct UpdateStore {
 }
 
 struct UpdateState(Mutex<UpdateStore>);
+
+#[derive(Debug, Clone, Serialize)]
+struct OpenedFile {
+    name: String,
+    contents: String,
+}
+
+/// The project file Windows asked to open, held until the web view takes it
+#[derive(Default)]
+struct OpenedFileState(std::sync::Mutex<Option<OpenedFile>>);
+
+/// The first command-line argument that names a project file. Relative paths start at `cwd`.
+fn project_path_from_args<I, S>(args: I, cwd: &Path) -> Option<PathBuf>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    args.into_iter()
+        .map(|arg| PathBuf::from(arg.as_ref()))
+        .find(|path| {
+            path.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case(PROJECT_EXTENSION))
+        })
+        .map(|path| cwd.join(path))
+}
+
+fn read_project_file(path: &Path) -> Result<OpenedFile, String> {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "the file".into());
+    let meta = std::fs::metadata(path).map_err(|e| format!("Could not open {name} ({e})."))?;
+    if !meta.is_file() {
+        return Err(format!("{name} is not a file."));
+    }
+    if meta.len() > MAX_PROJECT_BYTES {
+        return Err(format!("{name} is too large to be a WireWise project."));
+    }
+    let contents =
+        std::fs::read_to_string(path).map_err(|e| format!("Could not read {name} ({e})."))?;
+    Ok(OpenedFile { name, contents })
+}
+
+/// Reads the file and keeps it for the web view. Returns true when one is waiting.
+fn queue_opened_file(app: &AppHandle, path: &Path) -> bool {
+    match read_project_file(path) {
+        Ok(file) => {
+            if let Ok(mut pending) = app.state::<OpenedFileState>().0.lock() {
+                *pending = Some(file);
+                return true;
+            }
+            false
+        }
+        Err(message) => {
+            app.dialog()
+                .message(message)
+                .title("WireWise")
+                .kind(MessageDialogKind::Error)
+                .show(|_| {});
+            false
+        }
+    }
+}
+
+#[tauri::command]
+fn desktop_take_opened_file(state: tauri::State<'_, OpenedFileState>) -> Option<OpenedFile> {
+    state.0.lock().ok().and_then(|mut pending| pending.take())
+}
 
 #[derive(Debug, Deserialize)]
 struct GitHubRelease {
@@ -539,27 +609,41 @@ fn is_local_app_url(url: &tauri::Url) -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
+            // A project double-clicked while WireWise is running. The first argument is the program.
+            if let Some(path) = project_path_from_args(args.iter().skip(1), Path::new(&cwd)) {
+                if queue_opened_file(app, &path) {
+                    let _ = app.emit("desktop:open-file", ());
+                }
+            }
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(UpdateState(Mutex::new(UpdateStore::default())))
+        .manage(OpenedFileState::default())
         .invoke_handler(tauri::generate_handler![
             desktop_get_info,
             desktop_check_updates,
             desktop_download_update,
             desktop_install_update,
+            desktop_take_opened_file,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
 
             let menu = build_app_menu(&handle)?;
             app.set_menu(menu)?;
+
+            // Launched by opening a project file: the web view takes it once it has loaded
+            let cwd = std::env::current_dir().unwrap_or_default();
+            if let Some(path) = project_path_from_args(std::env::args_os().skip(1), &cwd) {
+                queue_opened_file(&handle, &path);
+            }
 
             let nav_handle = handle.clone();
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))

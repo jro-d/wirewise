@@ -19,7 +19,8 @@ import { SchematicCanvas } from './components/canvas/SchematicCanvas';
 import { SingleLineCanvas } from './components/canvas/SingleLineCanvas';
 import { LadderCanvas } from './components/canvas/LadderCanvas';
 import { LadderRung } from './types/ladder';
-import { sound, playBuzzerBeep } from './utils/soundFx';
+import { coilTransitions, deviceToggleSound, playSound, toggleSound } from './utils/soundFx';
+import { PROJECT_FILE_ACCEPT, PROJECT_FILE_MIME, ProjectFileError, parseProjectFile, projectFileName, serializeProjectFile } from './utils/projectFile';
 import { TroubleshootPanel } from './components/layout/TroubleshootPanel';
 import { newDiagState, type DiagState } from './core/troubleshootSession';
 import type { TroubleshootScenario } from './data/troubleshootScenarios';
@@ -244,10 +245,12 @@ export const App: React.FC = () => {
   // Returns true (and toasts) when the action must be blocked because the grid is energized or in phone view-only mode
   const isEditBlocked = (): boolean => {
     if (isViewOnly) {
+      playSound('blocked');
       showNotice('View-only on phone screens — use a tablet or desktop to edit');
       return true;
     }
     if (!isSimulating) return false;
+    playSound('blocked');
     showNotice(LOCKED_MESSAGE);
     return true;
   };
@@ -260,7 +263,7 @@ export const App: React.FC = () => {
 
   const handleUndo = () => {
     if (undoStack.length === 0 || isEditBlocked()) return;
-    sound.playClick();
+    playSound('click');
     const previous = undoStack[undoStack.length - 1];
     setUndoStack(prev => prev.slice(0, prev.length - 1));
     setRedoStack(prev => [...prev, JSON.parse(JSON.stringify(project))]);
@@ -272,7 +275,7 @@ export const App: React.FC = () => {
 
   const handleRedo = () => {
     if (redoStack.length === 0 || isEditBlocked()) return;
-    sound.playClick();
+    playSound('click');
     const next = redoStack[redoStack.length - 1];
     setRedoStack(prev => prev.slice(0, prev.length - 1));
     setUndoStack(prev => [...prev, JSON.parse(JSON.stringify(project))]);
@@ -519,7 +522,7 @@ export const App: React.FC = () => {
 
   const showTest = (r: { label: string; primary: string; secondary?: string; beep?: boolean }) => {
     setDmmReadout({ mode: 'test', label: r.label, primary: r.primary, secondary: r.secondary });
-    if (r.beep) playBuzzerBeep();
+    if (r.beep) playSound('beep');
   };
 
   const handleSelectInstrument = (id: InstrumentId) => {
@@ -661,11 +664,27 @@ export const App: React.FC = () => {
     if (!isSimulating) return;
     const outcome = analysis.result;
     if (outcome.trippedDevices.length === 0 && Object.keys(outcome.devicePatches).length === 0) return;
-    sound.playTripPop();
+    playSound('trip');
     setProject(prev => {
       const devices = applyProtectiveOutcome(prev.devices, outcome);
       return devices === prev.devices ? prev : { ...prev, devices };
     });
+  }, [isSimulating, analysis]);
+
+  // Contactors and relays click as their coils pick up and drop out. Silent on the first solve:
+  // the energize sound covers it.
+  const coilsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!isSimulating) {
+      coilsRef.current = null;
+      return;
+    }
+    const change = coilTransitions(coilsRef.current ?? new Set(), analysis.devicesForAnalysis);
+    const firstSolve = coilsRef.current === null;
+    coilsRef.current = change.energized;
+    if (firstSolve) return;
+    if (change.pulledIn) playSound('contactorIn');
+    else if (change.droppedOut) playSound('contactorOut');
   }, [isSimulating, analysis]);
 
   // Arc flash: audio + short-lived visual
@@ -675,7 +694,7 @@ export const App: React.FC = () => {
       return;
     }
     if (analysis.result.sparks.length > 0) {
-      sound.playSparkZap();
+      playSound('spark');
       setSparkFlash(analysis.result.sparks);
       if (sparkTimer.current) clearTimeout(sparkTimer.current);
       sparkTimer.current = setTimeout(() => setSparkFlash([]), 3000);
@@ -692,17 +711,18 @@ export const App: React.FC = () => {
       const gate = simulateGate(project.safeIsolation);
       if (!gate.allowed) {
         if (gate.markWarned) setProject((prev) => (prev.safeIsolation ? { ...prev, safeIsolation: { ...prev.safeIsolation, warned: true } } : prev));
+        playSound('blocked');
         showNotice(gate.message);
         return;
       }
-      sound.playBreakerSnap();
+      playSound('energize');
       setSelectedWireId(null);
       recorderRef.current.clear();
       setRecVersion((v) => v + 1);
       setIsSimulating(true);
       showNotice(`Grid energized — ${project.gridVoltage}V ${project.gridFrequency}Hz`);
     } else {
-      sound.playClick();
+      playSound('deEnergize');
       setIsSimulating(false);
       setSparkFlash([]);
       // Back to safe Edit Mode: de-energize visuals and re-arm any tripped protection
@@ -724,7 +744,7 @@ export const App: React.FC = () => {
     if (!fromDev || !toDev) return;
 
     pushUndoSnapshot();
-    sound.playSwitchClick();
+    playSound('wireConnect');
 
     const fromTerm = fromDev.terminals.find(t => t.id === fromTermId);
     const toTerm = toDev.terminals.find(t => t.id === toTermId);
@@ -764,7 +784,7 @@ export const App: React.FC = () => {
     if (isEditBlocked()) return;
     pushUndoSnapshot();
     const newDev = createDeviceFromCatalog(type, 380 + Math.random() * 60, 240 + Math.random() * 60);
-    sound.playSwitchClick();
+    playSound('place');
     setProject(prev => ({
       ...prev,
       devices: [...prev.devices, newDev]
@@ -777,7 +797,7 @@ export const App: React.FC = () => {
     if (isEditBlocked()) return;
     pushUndoSnapshot();
     const newDev = createDeviceFromCatalog(type, Math.max(10, x), Math.max(10, y));
-    sound.playSwitchClick();
+    playSound('place');
     setProject(prev => ({
       ...prev,
       devices: [...prev.devices, newDev]
@@ -789,7 +809,7 @@ export const App: React.FC = () => {
   const handleRotateDevice = (device: ElectricalDevice) => {
     if (isEditBlocked()) return;
     pushUndoSnapshot();
-    sound.playSwitchClick();
+    playSound('rotate');
     setProject(prev => ({
       ...prev,
       devices: prev.devices.map(d => {
@@ -805,7 +825,7 @@ export const App: React.FC = () => {
   const handleDuplicateDevice = (device: ElectricalDevice) => {
     if (isEditBlocked()) return;
     pushUndoSnapshot();
-    sound.playSwitchClick();
+    playSound('place');
     const newId = `${device.type}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const cloned: ElectricalDevice = {
       ...JSON.parse(JSON.stringify(device)),
@@ -869,7 +889,7 @@ export const App: React.FC = () => {
     const targets = selectedGroupIds.length > 1 ? selectedGroupIds : [selectedDeviceId];
     const anyUnlocked = project.devices.some(d => targets.includes(d.id) && !d.state.locked);
     pushUndoSnapshot();
-    sound.playClick();
+    playSound('click');
     setProject(prev => ({
       ...prev,
       devices: prev.devices.map(d =>
@@ -906,7 +926,7 @@ export const App: React.FC = () => {
       return;
     }
     pushUndoSnapshot();
-    sound.playSwitchClick();
+    playSound('switch');
     setProject(prev => applyDeviceMoves(prev, moves));
   };
 
@@ -915,7 +935,7 @@ export const App: React.FC = () => {
   const handleUpdateDeviceProperty = (deviceId: string, key: string, value: any) => {
     if (isViewOnly) return;
     pushUndoSnapshot();
-    sound.playSwitchClick();
+    playSound('switch');
     setProject(prev => ({
       ...prev,
       devices: prev.devices.map(d => {
@@ -966,7 +986,7 @@ export const App: React.FC = () => {
     const fixedTerm = moveEnd === 'from' ? wire.toTerminalId : wire.fromTerminalId;
     if (newDeviceId === fixedDev && newTerminalId === fixedTerm) return;
     pushUndoSnapshot();
-    sound.playSwitchClick();
+    playSound('wireConnect');
     setProject(prev => ({
       ...prev,
       wires: prev.wires.map(w =>
@@ -988,6 +1008,7 @@ export const App: React.FC = () => {
   const handleDeleteWire = (wireId: string) => {
     if (isEditBlocked()) return;
     pushUndoSnapshot();
+    playSound('wireRemove');
     setProject(prev => ({
       ...prev,
       wires: prev.wires.filter(w => w.id !== wireId),
@@ -1023,6 +1044,7 @@ export const App: React.FC = () => {
 
   // Toggle breaker or switch state
   const handleToggleDeviceState = (device: ElectricalDevice) => {
+    playSound(deviceToggleSound(device.type));
     setProject(prev => ({
       ...prev,
       devices: prev.devices.map(d => d.id === device.id ? { ...device, state: { ...device.state } } : d)
@@ -1036,6 +1058,7 @@ export const App: React.FC = () => {
     if (doomedWires.length === 0 && doomedDevs.length === 0) return;
     if (isEditBlocked()) return;
     pushUndoSnapshot();
+    playSound(doomedDevs.length > 0 ? 'remove' : 'wireRemove');
     setProject(prev => ({
       ...prev,
       devices: prev.devices.filter(d => !doomedDevs.includes(d.id)),
@@ -1070,7 +1093,10 @@ export const App: React.FC = () => {
       // While KeybindsModal or a guide dialog is open, let it own keystrokes exclusively
       if (isKeybindsOpen || guidePanel) return;
 
-      if (matchesShortcutAction(e, 'sim.toggle')) {
+      if (matchesShortcutAction(e, 'sound.toggle')) {
+        e.preventDefault();
+        showNotice(toggleSound() ? 'Sound effects off' : 'Sound effects on');
+      } else if (matchesShortcutAction(e, 'sim.toggle')) {
         e.preventDefault();
         handleToggleSimulation();
       } else if (matchesShortcutAction(e, 'sim.reset')) {
@@ -1210,7 +1236,7 @@ export const App: React.FC = () => {
 
   // Reset simulation: re-arm tripped breakers / RCDs and clear injected earth faults
   const handleResetSimulation = () => {
-    sound.playBreakerSnap();
+    playSound('breaker');
     setSparkFlash([]);
     setProject(prev => ({
       ...prev,
@@ -1233,15 +1259,17 @@ export const App: React.FC = () => {
     }
   };
 
-  // Export Project JSON
-  const handleExportJson = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(project, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `${project.title.toLowerCase().replace(/\s+/g, '_')}_${standard}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+  // Save the project as a .wirewise file
+  const handleSaveProject = () => {
+    const blob = new Blob([serializeProjectFile(project, APP_VERSION)], { type: PROJECT_FILE_MIME });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = projectFileName(project.title, standard);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   // Export Self-Opening Standalone Offline HTML (embeds the student's current wiring)
@@ -1337,8 +1365,8 @@ export const App: React.FC = () => {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  // Trigger Import JSON
-  const handleImportJson = () => {
+  // Show the file picker
+  const handleOpenProject = () => {
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
@@ -1352,7 +1380,7 @@ export const App: React.FC = () => {
     // Flipping re-anchors outlet terminals, so it counts as a wiring edit
     if (isEditBlocked()) return;
     pushUndoSnapshot();
-    sound.playClick();
+    playSound('click');
     const nextMode = isAllRearView ? 'front' : 'rear';
     setProject(prev => ({
       ...prev,
@@ -1385,35 +1413,53 @@ export const App: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Loads a .wirewise or older .json project. Opened projects always start de-energized in Edit Mode. */
+  const openProject = (text: string, fileName: string) => {
+    let loaded: ElectricalProject;
+    try {
+      loaded = parseProjectFile(text);
+    } catch (err) {
+      alert(`Could not open ${fileName}. ${err instanceof ProjectFileError ? err.message : 'The file could not be read.'}`);
+      return;
+    }
+    pushUndoSnapshot();
+    setIsSimulating(false);
+    setSparkFlash([]);
+    setProject(loaded);
+    setStandard(loaded.codeStandard);
+    setSelectedDeviceId(null);
+    setSelectedGroupIds([]);
+    setSelectedWireId(null);
+    showNotice(`Opened ${fileName}`);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const imported = JSON.parse(event.target?.result as string);
-        if (imported.devices && imported.wires) {
-          pushUndoSnapshot();
-          // Imported projects always open de-energized in Edit Mode
-          setIsSimulating(false);
-          setSparkFlash([]);
-          const migrated = migrateLegacyProject(imported.devices, imported.wires);
-          setProject({ ...imported, devices: toEditModeDevices(migrated.devices), wires: migrated.wires });
-          setSelectedDeviceId(null);
-          setSelectedGroupIds([]);
-          setSelectedWireId(null);
-          if (imported.codeStandard) {
-            setStandard(imported.codeStandard);
-          }
-        }
-      } catch (err) {
-        alert('Invalid electrical project JSON file.');
-      }
-    };
-    reader.readAsText(file);
     e.target.value = '';
+    if (!file) return;
+    file
+      .text()
+      .then((text) => openProject(text, file.name))
+      .catch(() => alert(`Could not read ${file.name}.`));
   };
+
+  // Desktop: a .wirewise file opened from Windows, at launch or while the app is already running
+  const openFromDesktopRef = useRef<() => void>(() => {});
+  openFromDesktopRef.current = () => {
+    window.wirewiseDesktop
+      ?.takeOpenedFile?.()
+      .then((file) => {
+        if (file) openProject(file.contents, file.name);
+      })
+      .catch(() => {});
+  };
+  useEffect(() => {
+    const bridge = window.wirewiseDesktop;
+    if (!bridge?.takeOpenedFile) return;
+    const unsubscribe = bridge.onOpenFile?.(() => openFromDesktopRef.current());
+    openFromDesktopRef.current();
+    return () => unsubscribe?.();
+  }, []);
 
   // Load a Lab Lesson (always opens de-energized in Edit Mode; press ▶ Simulate to energize)
   const handleAddRecorderChannel = (channel: Omit<RecorderChannel, 'id'>) => {
@@ -1445,7 +1491,7 @@ export const App: React.FC = () => {
 
   // Focus and select device or wire when clicking violation in HUD
   const handleHighlightViolation = (viol: CodeViolation) => {
-    sound.playClick();
+    playSound('click');
     if (viol.affectedDeviceId) {
       handleSelectDevice(viol.affectedDeviceId);
       setSelectedWireId(null);
@@ -1488,6 +1534,7 @@ export const App: React.FC = () => {
 
   // Blocked-edit notifications coming from the canvas
   const handleBlockedEdit = (reason: 'simulating' | 'locked-device') => {
+    playSound('blocked');
     showNotice(reason === 'simulating' ? LOCKED_MESSAGE : 'Device position is locked — unlock it to move');
   };
 
@@ -1496,7 +1543,7 @@ export const App: React.FC = () => {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".json"
+        accept={PROJECT_FILE_ACCEPT}
         onChange={handleFileChange}
         className="hidden"
       />
@@ -1515,9 +1562,9 @@ export const App: React.FC = () => {
         onOpenLabs={() => setIsLabModalOpen(true)}
         onResetSimulation={handleResetSimulation}
         onClearCanvas={handleClearCanvas}
-        onExportJson={handleExportJson}
+        onSaveProject={handleSaveProject}
         onExportHtml={handleExportHtml}
-        onImportJson={handleImportJson}
+        onOpenProject={handleOpenProject}
         onFlipAllOutlets={handleFlipAllOutlets}
         isAllRearView={isAllRearView}
         canUndo={undoStack.length > 0}

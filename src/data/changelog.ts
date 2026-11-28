@@ -29,14 +29,14 @@ export const RELEASES: Release[] = [
   {
     version: '1.1.0',
     date: null,
-    summary: 'Guided walkthrough, Help panel, easier canvas navigation and clearer diagrams.',
+    summary: 'Guided help, easier navigation, WireWise project files and clearer diagrams.',
     changes: {
       new: [
         { lead: 'New Installation Guide.', text: 'Six short steps that start on your first launch.' },
-        { lead: 'How to Use panel.', text: 'Controls, wiring and test views in one place, from the Help button.' },
-        { lead: 'Update Logs.', text: 'Read what changed in every release from the Help menu.' },
-        { lead: 'Pan tool and Trackpad mode.', text: 'Move around every canvas without a clickable scroll wheel.' },
-        { lead: 'Keyboard shortcuts editor.', text: 'See and rebind the keys for tools, views and editing.' },
+        { lead: 'How to Use panel and Update Logs.', text: 'A guide and the notes for every release, under Help.' },
+        { lead: 'Pan tool, Trackpad mode and shortcuts.', text: 'Move around without a clickable scroll wheel, and rebind any key.' },
+        { lead: 'WireWise project files.', text: 'Projects save as .wirewise files, which the installed Windows app opens.' },
+        { lead: 'Sound effects switch.', text: 'More electrical sounds, with an on and off switch that is remembered.' },
       ],
       improved: [
         { lead: 'Control ladder.', text: 'A vertical IEC layout with shared trunks, path numbers and contact cross-references.' },
@@ -46,6 +46,7 @@ export const RELEASES: Release[] = [
       ],
       fixed: [
         { lead: 'Standard menu.', text: 'IEC 60364 is always listed at 50 Hz.' },
+        { lead: 'Save standalone HTML.', text: 'The saved page from the web app now works offline.' },
         { lead: 'Download page on phones.', text: 'Open in browser is hidden where the editor is not available.' },
       ],
     },

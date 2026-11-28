@@ -31,13 +31,14 @@
 - **Live solver**: trips on short circuit, overload and earth leakage, with motors, timers and control circuits behaving as wired.
 - **Code inspector**: PEC 2017 or IEC 60364 checks on conductor size, protection, colours and grounding.
 - **Labs and reports**: guided example wirings, plus load schedule, bill of materials and energy reports.
+- **Project files**: save and open `.wirewise` projects (older `.json` projects still open). The Windows installer opens them on double-click.
 - **Help built in**: a first-run walkthrough, a How to Use guide (`F1`) and release notes under Help › Update Logs.
 
 Devices are generic models of standard devices, not specific brands. WireWise is a training aid: the models are simplified and are no substitute for the official codes or a qualified engineer.
 
 ## Shortcuts
 
-Help `F1` · All shortcuts `Ctrl+/` · Undo / Redo `Ctrl+Z` / `Ctrl+Y` · Rotate `R` · Fit view `F` · Delete `Del` · Pan `H` or `Space`+drag · Zoom mouse wheel
+Help `F1` · All shortcuts `Ctrl+/` · Sound on / off `Alt+S` · Undo / Redo `Ctrl+Z` / `Ctrl+Y` · Rotate `R` · Fit view `F` · Delete `Del` · Pan `H` or `Space`+drag · Zoom mouse wheel
 
 ## Development
 

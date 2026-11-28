@@ -28,6 +28,15 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["wirewise"],
+        "name": "WireWise Project",
+        "description": "WireWise Project",
+        "mimeType": "application/vnd.wirewise.project+json",
+        "role": "Editor"
+      }
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
