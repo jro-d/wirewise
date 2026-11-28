@@ -1,6 +1,7 @@
 import React from 'react';
 import { CodeStandard } from '../../types/electrical';
 import { useCadStatus } from '../../utils/cadStatusStore';
+import { useKeybinds } from '../../utils/shortcuts';
 
 export type SnapSize = 10 | 5 | 0;
 
@@ -27,6 +28,8 @@ interface StatusBarProps {
   /** Short-circuit check: fault levels overlay */
   faultLevelsOn?: boolean;
   onToggleFaultLevels?: () => void;
+  /** Open keyboard shortcuts editor */
+  onOpenKeybinds?: () => void;
 }
 
 const SNAP_CYCLE: SnapSize[] = [10, 5, 0];
@@ -53,8 +56,10 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   faultLevelsOn = false,
   onToggleFaultLevels,
   onOpenReports,
+  onOpenKeybinds,
 }) => {
   const { cursorX, cursorY, zoom, wiring } = useCadStatus();
+  const { getLabel } = useKeybinds();
 
   const mode = wiring ? 'Wiring Conductor' : isSimulating ? 'Live Simulation' : 'Selection / Edit';
   const standardLabel = standard === 'PEC' ? 'PEC 2017' : 'IEC 60364';
@@ -90,19 +95,28 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
       <div className="hidden xl:flex items-center gap-2 text-[10px] text-ink-muted truncate" title="Keyboard shortcuts">
         {[
-          ['Drag', 'select'],
-          ['Dbl-click', 'inspect'],
-          ['F', 'fit'],
-          ['R', 'rotate'],
-          ['Del', 'delete'],
-          ['Ctrl+Z', 'undo'],
+          [getLabel('tool.pan'), 'pan'],
+          [getLabel('canvas.fit'), 'fit'],
+          [getLabel('edit.rotate'), 'rotate'],
+          [getLabel('edit.delete'), 'delete'],
+          [getLabel('edit.undo'), 'undo'],
           ['Space+drag', 'pan'],
         ].map(([k, v]) => (
-          <span key={k} className="flex items-center gap-1">
+          <span key={`${k}-${v}`} className="flex items-center gap-1">
             <kbd className="px-1 py-px rounded-xs border border-border bg-surface text-ink-muted font-semibold">{k}</kbd>
             {v}
           </span>
         ))}
+        {onOpenKeybinds && (
+          <button
+            type="button"
+            onClick={onOpenKeybinds}
+            className="px-1.5 py-px rounded-xs border border-border bg-surface hover:bg-surface-hover text-ink font-semibold transition"
+            title={`Customize keyboard shortcuts (${getLabel('panel.keybinds')})`}
+          >
+            Keybinds
+          </button>
+        )}
       </div>
 
       {onToggleRecorder && (

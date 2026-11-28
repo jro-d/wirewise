@@ -4,6 +4,8 @@ import { createDeviceFromCatalog } from '../../data/defaultComponents';
 import {
   DEFAULT_PLAN, SYMBOL_SPECS, applyRunLengths, benchPosition, linkableDevices, planBounds, planRuns, specFor, type SymbolKind,
 } from '../../core/floorPlan';
+import { useCanvasNavigation } from '../../hooks/useCanvasNavigation';
+import { CanvasNavHud } from './CanvasNavHud';
 
 type Tool = 'select' | 'room' | SymbolKind | 'run_straight' | 'run_orthogonal';
 
@@ -31,17 +33,33 @@ export const PlanView: React.FC<PlanViewProps> = ({ project, onChange }) => {
   const [drag, setDrag] = React.useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [moving, setMoving] = React.useState<{ id: string; dx: number; dy: number } | null>(null);
   const [notice, setNotice] = React.useState('');
-  const svgRef = React.useRef<SVGSVGElement>(null);
   const bounds = planBounds(plan);
   const reports = React.useMemo(() => planRuns(plan, project.wires), [plan, project.wires]);
 
+  const getFitBounds = React.useCallback(
+    () => ({ minX: 0, minY: 0, maxX: bounds.w * PX, maxY: bounds.h * PX }),
+    [bounds.w, bounds.h]
+  );
+
+  const nav = useCanvasNavigation({
+    minZoom: 0.35,
+    maxZoom: 3.0,
+    initialZoom: 1.0,
+    allowSingleTouchPan: true,
+    getFitBounds,
+  });
+
   const update = (fn: (p: FloorPlan) => FloorPlan) => onChange((prev) => ({ ...prev, plan: fn(prev.plan ?? DEFAULT_PLAN) }));
   const point = (e: React.MouseEvent) => {
-    const r = svgRef.current!.getBoundingClientRect();
-    return { x: snap((e.clientX - r.left) / PX), y: snap((e.clientY - r.top) / PX) };
+    const w = nav.toWorld(e.clientX, e.clientY);
+    return { x: snap(w.x / PX), y: snap(w.y / PX) };
   };
 
   const onDown = (e: React.MouseEvent) => {
+    if (nav.shouldPanOnMouseDown(e)) {
+      nav.startPan(e.clientX, e.clientY);
+      return;
+    }
     const p = point(e);
     if (tool === 'room') setDrag({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
     else if (tool !== 'select' && !tool.startsWith('run')) {
@@ -53,11 +71,13 @@ export const PlanView: React.FC<PlanViewProps> = ({ project, onChange }) => {
     } else if (tool === 'select') setSelected(null);
   };
   const onMove = (e: React.MouseEvent) => {
+    if (nav.updatePan(e.clientX, e.clientY)) return;
     const p = point(e);
     if (drag) setDrag({ ...drag, x1: p.x, y1: p.y });
     if (moving) setMoving({ ...moving, dx: p.x, dy: p.y });
   };
   const onUp = () => {
+    nav.endPan();
     if (drag) {
       const x = Math.min(drag.x0, drag.x1);
       const y = Math.min(drag.y0, drag.y1);
@@ -77,6 +97,7 @@ export const PlanView: React.FC<PlanViewProps> = ({ project, onChange }) => {
   };
 
   const clickSymbol = (e: React.MouseEvent, s: PlanSymbol) => {
+    if (nav.shouldPanOnMouseDown(e)) return;
     e.stopPropagation();
     if (tool.startsWith('run')) {
       if (!runStart) {
@@ -147,58 +168,78 @@ export const PlanView: React.FC<PlanViewProps> = ({ project, onChange }) => {
         One floor, 1 m grid. Draw rooms (drag), place symbols (click), link each symbol to a device, draw home runs between symbols, then apply the lengths. Not in this version: auto-routing, several floors, DXF / PDF import, and generating the workbench wiring from the plan. {notice && <b className="text-ink">{notice}</b>}
       </div>
       <div className="flex-1 flex min-h-0">
-        <div className="flex-1 overflow-auto p-3">
+        <div className="flex-1 relative overflow-hidden bg-canvas">
+          <CanvasNavHud
+            zoom={nav.zoom}
+            toolMode={nav.toolMode}
+            onToolModeChange={nav.setToolMode}
+            inputMode={nav.inputMode}
+            onInputModeChange={nav.setInputMode}
+            onZoomIn={nav.zoomIn}
+            onZoomOut={nav.zoomOut}
+            onPanStep={nav.panStep}
+            onFit={nav.fitToView}
+            onReset={nav.resetView}
+          />
           <svg
-            ref={svgRef}
-            width={bounds.w * PX}
-            height={bounds.h * PX}
-            className="bg-surface border border-border cursor-crosshair"
+            ref={nav.containerRef}
+            className={`w-full h-full bg-surface touch-none ${
+              nav.toolMode === 'pan' || nav.isSpacePressed || nav.isPanning ? nav.cursorClass : 'cursor-crosshair'
+            }`}
             onMouseDown={onDown}
             onMouseMove={onMove}
             onMouseUp={onUp}
             onMouseLeave={onUp}
+            onWheel={nav.handleWheel}
+            onTouchStart={nav.handleTouchStart}
+            onTouchMove={nav.handleTouchMove}
+            onTouchEnd={nav.handleTouchEnd}
+            onTouchCancel={nav.handleTouchEnd}
+            onContextMenu={(e) => e.preventDefault()}
           >
             <defs>
               <pattern id="plan-grid" width={PX} height={PX} patternUnits="userSpaceOnUse"><path d={`M${PX} 0H0V${PX}`} fill="none" stroke="var(--border)" strokeWidth={0.5} /></pattern>
             </defs>
-            <rect width="100%" height="100%" fill="url(#plan-grid)" />
-            {plan.rooms.map((r) => (
-              <g key={r.id} onMouseDown={(e) => { if (tool === 'select') { e.stopPropagation(); setSelected({ type: 'room', id: r.id }); } }}>
-                <rect x={r.x * PX} y={r.y * PX} width={r.w * PX} height={r.h * PX} fill="var(--surface-sunken)" fillOpacity={0.5} stroke={selected?.id === r.id ? 'var(--probe)' : 'var(--ink)'} strokeWidth={selected?.id === r.id ? 2.5 : 1.5} />
-                <text x={r.x * PX + 6} y={r.y * PX + 14} fontSize={11} fontWeight={700} fill="var(--ink)">{r.name}</text>
-                <text x={r.x * PX + 6} y={r.y * PX + 27} fontSize={9} fill="var(--ink-muted)">{r.w} x {r.h} m ({Math.round(r.w * r.h * 10) / 10} m²)</text>
-              </g>
-            ))}
-            {drag && <rect x={Math.min(drag.x0, drag.x1) * PX} y={Math.min(drag.y0, drag.y1) * PX} width={Math.abs(drag.x1 - drag.x0) * PX} height={Math.abs(drag.y1 - drag.y0) * PX} fill="none" stroke="var(--probe)" strokeDasharray="5 3" />}
-            {plan.runs.map((run) => {
-              const a = byId.get(run.fromSymbolId);
-              const b = byId.get(run.toSymbolId);
-              if (!a || !b) return null;
-              const pa = symPos(a);
-              const pb = symPos(b);
-              const rep = reports.find((x) => x.runId === run.id);
-              const d = run.mode === 'orthogonal' ? `M${pa.x * PX} ${pa.y * PX}H${pb.x * PX}V${pb.y * PX}` : `M${pa.x * PX} ${pa.y * PX}L${pb.x * PX} ${pb.y * PX}`;
-              const sel = selected?.id === run.id;
-              return (
-                <g key={run.id} onMouseDown={(e) => { e.stopPropagation(); setSelected({ type: 'run', id: run.id }); }}>
-                  <path d={d} fill="none" stroke="transparent" strokeWidth={10} />
-                  <path d={d} fill="none" stroke={rep?.linked ? 'var(--ok)' : 'var(--warning)'} strokeWidth={sel ? 3 : 2} strokeDasharray={rep?.linked ? undefined : '5 3'} />
-                  <text x={(pa.x + pb.x) * PX / 2 + 4} y={(pa.y + pb.y) * PX / 2 - 4} fontSize={10} fontWeight={700} fill="var(--ink)">{rep?.lengthM} m</text>
+            <g transform={`translate(${nav.pan.x}, ${nav.pan.y}) scale(${nav.zoom})`}>
+              <rect x={0} y={0} width={bounds.w * PX} height={bounds.h * PX} fill="url(#plan-grid)" stroke="var(--border-strong)" strokeWidth={1} />
+              {plan.rooms.map((r) => (
+                <g key={r.id} onMouseDown={(e) => { if (!nav.shouldPanOnMouseDown(e) && tool === 'select') { e.stopPropagation(); setSelected({ type: 'room', id: r.id }); } }}>
+                  <rect x={r.x * PX} y={r.y * PX} width={r.w * PX} height={r.h * PX} fill="var(--surface-sunken)" fillOpacity={0.5} stroke={selected?.id === r.id ? 'var(--probe)' : 'var(--ink)'} strokeWidth={selected?.id === r.id ? 2.5 : 1.5} />
+                  <text x={r.x * PX + 6} y={r.y * PX + 14} fontSize={11} fontWeight={700} fill="var(--ink)">{r.name}</text>
+                  <text x={r.x * PX + 6} y={r.y * PX + 27} fontSize={9} fill="var(--ink-muted)">{r.w} x {r.h} m ({Math.round(r.w * r.h * 10) / 10} m²)</text>
                 </g>
-              );
-            })}
-            {plan.symbols.map((s) => {
-              const p = symPos(s);
-              const spec = specFor(s.kind);
-              const sel = selected?.id === s.id || runStart === s.id;
-              return (
-                <g key={s.id} onMouseDown={(e) => clickSymbol(e, s)} className="cursor-pointer">
-                  <circle cx={p.x * PX} cy={p.y * PX} r={13} fill={s.deviceId ? 'var(--surface)' : 'var(--surface-sunken)'} stroke={sel ? 'var(--probe)' : s.deviceId ? 'var(--ok)' : 'var(--warning)'} strokeWidth={sel ? 3 : 2} />
-                  <text x={p.x * PX} y={p.y * PX + 4} textAnchor="middle" fontSize={12} fontWeight={700} fill="var(--ink)">{spec.glyph}</text>
-                  <text x={p.x * PX} y={p.y * PX + 25} textAnchor="middle" fontSize={9} fill="var(--ink-muted)">{s.label}</text>
-                </g>
-              );
-            })}
+              ))}
+              {drag && <rect x={Math.min(drag.x0, drag.x1) * PX} y={Math.min(drag.y0, drag.y1) * PX} width={Math.abs(drag.x1 - drag.x0) * PX} height={Math.abs(drag.y1 - drag.y0) * PX} fill="none" stroke="var(--probe)" strokeDasharray="5 3" />}
+              {plan.runs.map((run) => {
+                const a = byId.get(run.fromSymbolId);
+                const b = byId.get(run.toSymbolId);
+                if (!a || !b) return null;
+                const pa = symPos(a);
+                const pb = symPos(b);
+                const rep = reports.find((x) => x.runId === run.id);
+                const d = run.mode === 'orthogonal' ? `M${pa.x * PX} ${pa.y * PX}H${pb.x * PX}V${pb.y * PX}` : `M${pa.x * PX} ${pa.y * PX}L${pb.x * PX} ${pb.y * PX}`;
+                const sel = selected?.id === run.id;
+                return (
+                  <g key={run.id} onMouseDown={(e) => { if (nav.shouldPanOnMouseDown(e)) return; e.stopPropagation(); setSelected({ type: 'run', id: run.id }); }}>
+                    <path d={d} fill="none" stroke="transparent" strokeWidth={10} />
+                    <path d={d} fill="none" stroke={rep?.linked ? 'var(--ok)' : 'var(--warning)'} strokeWidth={sel ? 3 : 2} strokeDasharray={rep?.linked ? undefined : '5 3'} />
+                    <text x={(pa.x + pb.x) * PX / 2 + 4} y={(pa.y + pb.y) * PX / 2 - 4} fontSize={10} fontWeight={700} fill="var(--ink)">{rep?.lengthM} m</text>
+                  </g>
+                );
+              })}
+              {plan.symbols.map((s) => {
+                const p = symPos(s);
+                const spec = specFor(s.kind);
+                const sel = selected?.id === s.id || runStart === s.id;
+                return (
+                  <g key={s.id} onMouseDown={(e) => clickSymbol(e, s)} className="cursor-pointer">
+                    <circle cx={p.x * PX} cy={p.y * PX} r={13} fill={s.deviceId ? 'var(--surface)' : 'var(--surface-sunken)'} stroke={sel ? 'var(--probe)' : s.deviceId ? 'var(--ok)' : 'var(--warning)'} strokeWidth={sel ? 3 : 2} />
+                    <text x={p.x * PX} y={p.y * PX + 4} textAnchor="middle" fontSize={12} fontWeight={700} fill="var(--ink)">{spec.glyph}</text>
+                    <text x={p.x * PX} y={p.y * PX + 25} textAnchor="middle" fontSize={9} fill="var(--ink-muted)">{s.label}</text>
+                  </g>
+                );
+              })}
+            </g>
           </svg>
         </div>
         <aside className="w-64 shrink-0 border-l border-border bg-surface p-3 space-y-3 text-[11px] overflow-y-auto">

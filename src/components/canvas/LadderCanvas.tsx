@@ -28,10 +28,10 @@ import {
   Target,
   PenTool,
   Radio,
-  ZoomIn,
-  ZoomOut,
   X,
 } from 'lucide-react';
+import { BoundsBox, useCanvasNavigation } from '../../hooks/useCanvasNavigation';
+import { CanvasNavHud } from './CanvasNavHud';
 
 type LadderMode = 'live' | 'target' | 'builder';
 type LadderLayout = 'vertical' | 'horizontal';
@@ -351,7 +351,30 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
   headerRight,
 }) => {
   const [mode, setMode] = useState<LadderMode>(targetLadder && targetLadder.length > 0 ? 'target' : 'live');
-  const [zoom, setZoom] = useState(compact ? 0.85 : 1);
+  const fitBoundsRef = React.useRef<BoundsBox | null>(null);
+  const getFitBounds = React.useCallback(() => fitBoundsRef.current, []);
+  const nav = useCanvasNavigation({
+    minZoom: 0.4,
+    maxZoom: 2.0,
+    initialZoom: compact ? 0.85 : 1,
+    allowSingleTouchPan: true,
+    getFitBounds,
+  });
+  const setVerticalBounds = React.useCallback((b: BoundsBox) => {
+    fitBoundsRef.current = b;
+  }, []);
+  const centerOnWorldPoint = React.useCallback(
+    (wx: number, wy: number) => {
+      const el = nav.containerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      nav.setPan({
+        x: r.width / 2 - wx * nav.zoom,
+        y: r.height / 2 - wy * nav.zoom,
+      });
+    },
+    [nav]
+  );
   const [selRungId, setSelRungId] = useState<string | null>(null);
   const [selElId, setSelElId] = useState<string | null>(null);
   const [armed, setArmed] = useState<LadderElementKind>('NO');
@@ -550,6 +573,7 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
   // ── Element interaction ──
   const ACTUATE: Record<string, string> = { start: 'startPressed', stop: 'stopPressed', fwd: 'fwdPressed', rev: 'revPressed' };
   const onElMouseDown = (el: LadderElement, e: React.MouseEvent) => {
+    if (nav.shouldPanOnMouseDown(e)) return;
     e.stopPropagation();
     if (el.deviceId) onSelectDevice(el.deviceId);
     if (mode === 'builder') {
@@ -591,6 +615,9 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
   const rungHeights = views.map((v) => Math.max(measure(v.pre).h, measure(v.post).h, 1));
   const svgH = TOP + rungHeights.reduce((a, h) => a + h * RH + 18, 0) + 70;
   const svgW = railR + 130;
+  if (layout === 'horizontal') {
+    fitBoundsRef.current = { minX: 0, minY: 0, maxX: svgW, maxY: svgH };
+  }
 
   // Cross references: coil device → rung numbers where its contacts appear
   const xref = (deviceId: string | undefined, self: number) => {
@@ -755,12 +782,6 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
               </button>
             ))}
           </div>
-          <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))} className="w-7 h-7 rounded-md border border-border bg-surface flex items-center justify-center hover:bg-surface-sunken" title="Zoom out">
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={() => setZoom((z) => Math.min(1.6, z + 0.1))} className="w-7 h-7 rounded-md border border-border bg-surface flex items-center justify-center hover:bg-surface-sunken" title="Zoom in">
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
           {headerRight}
         </div>
 
@@ -824,7 +845,21 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
       </div>
 
       {/* Diagram */}
-      <div className="flex-1 overflow-auto" onMouseDown={() => mode === 'builder' && setSelElId(null)}>
+      <div className="flex-1 relative overflow-hidden bg-canvas">
+        {views.length > 0 && (
+          <CanvasNavHud
+            zoom={nav.zoom}
+            toolMode={nav.toolMode}
+            onToolModeChange={nav.setToolMode}
+            inputMode={nav.inputMode}
+            onInputModeChange={nav.setInputMode}
+            onZoomIn={nav.zoomIn}
+            onZoomOut={nav.zoomOut}
+            onPanStep={nav.panStep}
+            onFit={nav.fitToView}
+            onReset={nav.resetView}
+          />
+        )}
         {views.length === 0 ? (
           <div className="h-full flex items-center justify-center p-8">
             <div className="max-w-sm text-center bg-surface border border-border rounded-lg p-6 shadow-sm">
@@ -857,7 +892,27 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
               railTopLabel={`L1 · ${railVoltLabel}`}
               railBottomLabel="L2 · control return"
               lampColors={LAMP_COLORS}
-              zoom={zoom}
+              zoom={nav.zoom}
+              pan={nav.pan}
+              svgRef={nav.containerRef}
+              cursorClass={nav.cursorClass}
+              onCanvasMouseDown={(e) => {
+                if (nav.shouldPanOnMouseDown(e)) {
+                  nav.startPan(e.clientX, e.clientY);
+                  return;
+                }
+                if (mode === 'builder') setSelElId(null);
+              }}
+              onCanvasMouseMove={(e) => {
+                nav.updatePan(e.clientX, e.clientY);
+              }}
+              onCanvasMouseUp={nav.endPan}
+              onCanvasWheel={nav.handleWheel}
+              onCanvasTouchStart={nav.handleTouchStart}
+              onCanvasTouchMove={nav.handleTouchMove}
+              onCanvasTouchEnd={nav.handleTouchEnd}
+              onCenterPoint={centerOnWorldPoint}
+              onReportBounds={setVerticalBounds}
               selectedElId={selElId}
               selectedDeviceId={selectedDeviceId}
               hoverDeviceId={hoverDev}
@@ -868,8 +923,12 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
               onElHover={onElHover}
               onXrefClick={jumpToContact}
               onXrefHover={setHoverDev}
-              onExplain={(o) => setExplainKey((k) => (k === o.key ? null : o.key))}
+              onExplain={(o) => {
+                if (nav.toolMode === 'pan' || nav.isSpacePressed) return;
+                setExplainKey((k) => (k === o.key ? null : o.key));
+              }}
               onSelectPath={(o) => {
+                if (nav.toolMode === 'pan' || nav.isSpacePressed) return;
                 if (mode === 'builder' && o.rungId) {
                   setSelRungId(o.rungId);
                   setSelElId(null);
@@ -877,23 +936,44 @@ export const LadderCanvas: React.FC<LadderCanvasProps> = ({
               }}
             />
           ) : (
-          <svg width={svgW * zoom} height={svgH * zoom} viewBox={`0 0 ${svgW} ${svgH}`} className="block">
+          <svg
+            ref={nav.containerRef}
+            className={`w-full h-full touch-none ${nav.cursorClass}`}
+            onMouseDown={(e) => {
+              if (nav.shouldPanOnMouseDown(e)) {
+                nav.startPan(e.clientX, e.clientY);
+                return;
+              }
+              if (mode === 'builder') setSelElId(null);
+            }}
+            onMouseMove={(e) => nav.updatePan(e.clientX, e.clientY)}
+            onMouseUp={nav.endPan}
+            onMouseLeave={nav.endPan}
+            onWheel={nav.handleWheel}
+            onTouchStart={nav.handleTouchStart}
+            onTouchMove={nav.handleTouchMove}
+            onTouchEnd={nav.handleTouchEnd}
+            onTouchCancel={nav.handleTouchEnd}
+            onContextMenu={(e) => e.preventDefault()}
+          >
             <defs>
               <pattern id="ladderGrid" width="20" height="20" patternUnits="userSpaceOnUse">
                 <circle cx="1" cy="1" r="0.7" fill="var(--border-strong)" />
               </pattern>
             </defs>
-            <rect x={0} y={0} width={svgW} height={svgH} fill="url(#ladderGrid)" />
-            {/* Rails */}
-            <line x1={RAIL_L} y1={TOP - 22} x2={RAIL_L} y2={totalRailBottom} stroke={railsLive ? 'var(--danger)' : COLORS.rail} strokeWidth={4} strokeLinecap="round" />
-            <line x1={railR} y1={TOP - 22} x2={railR} y2={totalRailBottom} stroke={railsLive ? 'var(--cond-blue)' : COLORS.rail} strokeWidth={4} strokeLinecap="round" />
-            <text x={RAIL_L - 6} y={TOP - 30} textAnchor="start" fontSize={11} fontWeight={900} fill={railsLive ? 'var(--danger)' : 'var(--ink)'} fontFamily="ui-sans-serif, system-ui">
-              L1 · {railVoltLabel} Control Hot
-            </text>
-            <text x={railR + 6} y={TOP - 30} textAnchor="end" fontSize={11} fontWeight={900} fill={railsLive ? 'var(--cond-blue)' : 'var(--ink)'} fontFamily="ui-sans-serif, system-ui">
-              L2 · Control Return
-            </text>
-            {parts}
+            <g transform={`translate(${nav.pan.x}, ${nav.pan.y}) scale(${nav.zoom})`}>
+              <rect x={-2000} y={-2000} width={6000} height={6000} fill="url(#ladderGrid)" />
+              {/* Rails */}
+              <line x1={RAIL_L} y1={TOP - 22} x2={RAIL_L} y2={totalRailBottom} stroke={railsLive ? 'var(--danger)' : COLORS.rail} strokeWidth={4} strokeLinecap="round" />
+              <line x1={railR} y1={TOP - 22} x2={railR} y2={totalRailBottom} stroke={railsLive ? 'var(--cond-blue)' : COLORS.rail} strokeWidth={4} strokeLinecap="round" />
+              <text x={RAIL_L - 6} y={TOP - 30} textAnchor="start" fontSize={11} fontWeight={900} fill={railsLive ? 'var(--danger)' : 'var(--ink)'} fontFamily="ui-sans-serif, system-ui">
+                L1 · {railVoltLabel} Control Hot
+              </text>
+              <text x={railR + 6} y={TOP - 30} textAnchor="end" fontSize={11} fontWeight={900} fill={railsLive ? 'var(--cond-blue)' : 'var(--ink)'} fontFamily="ui-sans-serif, system-ui">
+                L2 · Control Return
+              </text>
+              {parts}
+            </g>
           </svg>
           )
         )}

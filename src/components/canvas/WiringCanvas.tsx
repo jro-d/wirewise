@@ -7,6 +7,9 @@ import { calculateOrthogonalPath, computeWireRoute, generateSvgPath, Point, getD
 import { SolvedCircuit } from '../../core/circuitSolver';
 import { cadStatus } from '../../utils/cadStatusStore';
 import { conductorColor } from '../../styles/conductors';
+import { useCanvasNavigation } from '../../hooks/useCanvasNavigation';
+import { CanvasNavHud } from './CanvasNavHud';
+import { isEditableEventTarget, matchesShortcutAction } from '../../utils/shortcuts';
 
 interface WiringCanvasProps {
   devices: ElectricalDevice[];
@@ -121,7 +124,45 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
   onMeggerVolts,
   isViewOnly = false,
 }) => {
-  const containerRef = useRef<SVGSVGElement | null>(null);
+  const getFitBounds = React.useCallback(() => {
+    if (devices.length === 0) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const d of devices) {
+      minX = Math.min(minX, d.x);
+      minY = Math.min(minY, d.y);
+      maxX = Math.max(maxX, d.x + d.width);
+      maxY = Math.max(maxY, d.y + d.height);
+    }
+    for (const w of wires) {
+      for (const p of w.waypoints || []) {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      }
+    }
+    return { minX, minY, maxX, maxY };
+  }, [devices, wires]);
+
+  const handleZoomStatus = React.useCallback((z: number) => {
+    cadStatus.set({ zoom: z });
+  }, []);
+
+  const nav = useCanvasNavigation({
+    minZoom: 0.25,
+    maxZoom: 2.5,
+    initialZoom: 1.0,
+    insetLeft,
+    allowSingleTouchPan: isViewOnly,
+    getFitBounds,
+    fitKey,
+    onZoomChange: handleZoomStatus,
+  });
+
+  const { containerRef, zoom, pan, isPanning, isSpacePressed, toolMode } = nav;
 
   // Snap helpers (snapSize 0 = OFF → whole-pixel precision)
   const snapValue = (v: number) => (snapSize > 0 ? Math.round(v / snapSize) * snapSize : Math.round(v));
@@ -139,12 +180,8 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
     if (isViewOnly) return;
     const type = e.dataTransfer.getData('application/wirewise-device') as DeviceType;
     if (type && onDropDevice && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const rawX = e.clientX - rect.left;
-      const rawY = e.clientY - rect.top;
-      const svgX = (rawX - pan.x) / zoom;
-      const svgY = (rawY - pan.y) / zoom;
-      onDropDevice(type, snapValue(svgX), snapValue(svgY));
+      const world = nav.toWorld(e.clientX, e.clientY);
+      onDropDevice(type, snapValue(world.x), snapValue(world.y));
     }
   };
 
@@ -178,107 +215,22 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
   const [mousePos, setMousePos] = useState<Point>({ x: 0, y: 0 });
   const [hoveredTerminalId, setHoveredTerminalId] = useState<string | null>(null);
 
-  // Pan and Zoom
-  const [zoom, setZoom] = useState(1.0);
-  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
-  const [isSpacePressed, setIsSpacePressed] = useState(false);
-  const touchPanRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
-
-  // Keyboard shortcut listener (ESC to cancel wiring / rewire / deselect, Space for panning)
+  // Keyboard listener (customizable deselect/cancel key for wiring, rewire, port menu)
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (wiringStart) {
-          setWiringStart(null);
-        }
-        if (rewiringTarget) {
-          onSetRewiringTarget?.(null);
-        }
-        if (portMenu) {
-          setPortMenu(null);
-        }
+      if (isEditableEventTarget(e.target)) return;
+      if (matchesShortcutAction(e, 'edit.deselect')) {
+        if (wiringStart) setWiringStart(null);
+        if (rewiringTarget) onSetRewiringTarget?.(null);
+        if (portMenu) setPortMenu(null);
         onSelectDevice(null);
         onSelectWire(null);
-      } else if (e.code === 'Space' && !['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
-        setIsSpacePressed(true);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        setIsSpacePressed(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [wiringStart, rewiringTarget, portMenu, onSetRewiringTarget, onSelectDevice, onSelectWire]);
-
-  // Zoom-to-fit: frame every device (and routed wire waypoint) in the visible canvas area
-  const fitToView = React.useCallback(() => {
-    const el = containerRef.current;
-    if (!el || devices.length === 0) {
-      setZoom(1);
-      setPan({ x: 0, y: 0 });
-      return;
-    }
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const d of devices) {
-      minX = Math.min(minX, d.x);
-      minY = Math.min(minY, d.y);
-      maxX = Math.max(maxX, d.x + d.width);
-      maxY = Math.max(maxY, d.y + d.height);
-    }
-    for (const w of wires) {
-      for (const p of w.waypoints || []) {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
-      }
-    }
-    const rect = el.getBoundingClientRect();
-    const pad = 56;
-    const availW = Math.max(200, rect.width - insetLeft - pad * 2);
-    const availH = Math.max(200, rect.height - pad * 2);
-    const bw = Math.max(1, maxX - minX);
-    const bh = Math.max(1, maxY - minY);
-    const z = Math.min(1.15, Math.max(0.25, Math.min(availW / bw, availH / bh)));
-    setZoom(z);
-    setPan({
-      x: insetLeft + pad + (availW - bw * z) / 2 - minX * z,
-      y: pad + (availH - bh * z) / 2 - minY * z,
-    });
-  }, [devices, wires, insetLeft]);
-
-  // Re-fit when a different project / lab is loaded
-  React.useEffect(() => {
-    if (fitKey === undefined) return;
-    const t = setTimeout(fitToView, 30);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitKey]);
-
-  // "F" frames the drawing
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'f') fitToView();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [fitToView]);
-
-  // Publish zoom / wiring state to the CAD status bar
-  React.useEffect(() => {
-    cadStatus.set({ zoom });
-  }, [zoom]);
 
   React.useEffect(() => {
     cadStatus.set({ wiring: !!wiringStart });
@@ -307,6 +259,9 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
   };
 
   const handleDeviceMouseDown = (device: ElectricalDevice, e: React.MouseEvent) => {
+    if (toolMode === 'pan' || isSpacePressed || e.button === 1 || e.button === 2 || e.altKey) {
+      return;
+    }
     e.stopPropagation();
 
     // Shift+click builds a multi-selection (used by Align H / Align V / Group Drag)
@@ -359,6 +314,9 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
   };
 
   const handleTerminalMouseDown = (device: ElectricalDevice, terminal: DeviceTerminal, e: React.MouseEvent) => {
+    if (toolMode === 'pan' || isSpacePressed || e.button === 1 || e.altKey) {
+      return;
+    }
     e.stopPropagation();
     if (e.button === 2) return; // Right-click is reserved for the Connected-Port Rewire/Disconnect menu
     setPortMenu(null);
@@ -497,10 +455,7 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
 
       onUpdateDevicePosition(draggingDevId, newX, newY);
     } else if (isPanning) {
-      setPan({
-        x: e.clientX - panStart.x,
-        y: e.clientY - panStart.y,
-      });
+      nav.updatePan(e.clientX, e.clientY);
     }
   };
 
@@ -541,9 +496,12 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
     onMarqueeSelect?.(devIds, wireIds, m.additive);
   };
 
-  // Releasing the mouse outside the canvas must still end the rubber band
+  // Releasing the mouse outside the canvas must still end the rubber band and pan
   React.useEffect(() => {
-    const up = () => finishMarquee();
+    const up = () => {
+      finishMarquee();
+      nav.endPan();
+    };
     window.addEventListener('mouseup', up);
     return () => window.removeEventListener('mouseup', up);
   });
@@ -553,20 +511,16 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
     setDraggingDevId(null);
     groupDragRef.current = null;
     setSnapGuides(null);
-    setIsPanning(false);
+    nav.endPan();
     setDraggingSegment(null);
     blockedDragRef.current = null;
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
     setPortMenu(null);
-    // Middle-click (1), Right-click (2), Alt-click, or Spacebar-drag for smooth canvas panning
-    if (e.button === 1 || e.button === 2 || e.altKey || isSpacePressed) {
-      setIsPanning(true);
-      setPanStart({
-        x: e.clientX - pan.x,
-        y: e.clientY - pan.y,
-      });
+    // Pan tool (left-drag), Middle-click (1), Right-click (2), Alt-click, or Spacebar-drag
+    if (nav.shouldPanOnMouseDown(e)) {
+      nav.startPan(e.clientX, e.clientY);
     } else {
       // Do not wipe wire selection if click landed directly on a wire
       const target = e.target as Element | null;
@@ -585,11 +539,7 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
         return;
       }
       if (isViewOnly) {
-        setIsPanning(true);
-        setPanStart({
-          x: e.clientX - pan.x,
-          y: e.clientY - pan.y,
-        });
+        nav.startPan(e.clientX, e.clientY);
         return;
       }
       if (dmmMode) return;
@@ -599,32 +549,6 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
       marqueeRef.current = m;
       setMarquee(m);
     }
-  };
-
-  // Block page scroll while wheel-zooming (React's onWheel is passive, so use a native listener)
-  React.useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const block = (ev: WheelEvent) => ev.preventDefault();
-    el.addEventListener('wheel', block, { passive: false });
-    return () => el.removeEventListener('wheel', block);
-  }, []);
-
-  const handleWheel = (e: React.WheelEvent) => {
-    const zoomFactor = e.deltaY < 0 ? 1.12 : 0.89;
-    const newZoom = Math.min(2.5, Math.max(0.25, zoom * zoomFactor));
-
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    // Zoom anchored to the exact cursor position
-    const newPanX = mouseX - (mouseX - pan.x) * (newZoom / zoom);
-    const newPanY = mouseY - (mouseY - pan.y) * (newZoom / zoom);
-
-    setZoom(newZoom);
-    setPan({ x: newPanX, y: newPanY });
   };
 
   // Preview path while drawing or rewiring a wire
@@ -710,43 +634,20 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      {/* Zoom / Pan Controls HUD (Light Theme) */}
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-surface/95 border border-border/90 rounded-md p-1.5 shadow-2 backdrop-blur-md">
-        <button
-          onClick={() => setZoom((z) => Math.min(2.5, z + 0.15))}
-          className="w-7 h-7 flex items-center justify-center bg-surface-sunken hover:bg-border text-ink rounded-lg font-bold text-sm transition"
-          title="Zoom In"
-        >
-          +
-        </button>
-        <span className="text-xs font-mono text-ink-muted w-12 text-center font-bold">
-          {Math.round(zoom * 100)}%
-        </span>
-        <button
-          onClick={() => setZoom((z) => Math.max(0.25, z - 0.15))}
-          className="w-7 h-7 flex items-center justify-center bg-surface-sunken hover:bg-border text-ink rounded-lg font-bold text-sm transition"
-          title="Zoom Out"
-        >
-          -
-        </button>
-        <button
-          onClick={fitToView}
-          className="px-2.5 py-1 bg-ink hover:bg-ink text-xs text-surface rounded-lg font-bold transition"
-          title="Zoom to fit the whole drawing (F)"
-        >
-          Fit
-        </button>
-        <button
-          onClick={() => {
-            setZoom(1.0);
-            setPan({ x: 0, y: 0 });
-          }}
-          className="px-2.5 py-1 bg-surface-sunken hover:bg-border text-xs text-ink-muted rounded-lg font-medium transition"
-          title="Reset to 100% at the origin"
-        >
-          1:1
-        </button>
-      </div>
+      {/* Zoom / Pan / Trackpad Controls HUD */}
+      <CanvasNavHud
+        zoom={nav.zoom}
+        toolMode={nav.toolMode}
+        onToolModeChange={nav.setToolMode}
+        inputMode={nav.inputMode}
+        onInputModeChange={nav.setInputMode}
+        onZoomIn={nav.zoomIn}
+        onZoomOut={nav.zoomOut}
+        onPanStep={nav.panStep}
+        onFit={nav.fitToView}
+        onReset={nav.resetView}
+        className="top-4 right-4"
+      />
 
       {/* Empty workbench onboarding */}
       {devices.length === 0 && (
@@ -782,38 +683,15 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
       {/* Interactive SVG Surface */}
       <svg
         ref={containerRef}
-        className={`w-full h-full ${
-          isSpacePressed
-            ? isPanning
-              ? 'cursor-grabbing'
-              : 'cursor-grab'
-            : isPanning
-            ? 'cursor-grabbing'
-            : 'cursor-default'
-        }`}
+        className={`w-full h-full touch-none ${nav.cursorClass}`}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseDown={handleCanvasMouseDown}
-        onWheel={handleWheel}
-        onTouchStart={(e) => {
-          if (!isViewOnly || e.touches.length !== 1) return;
-          const t = e.touches[0];
-          touchPanRef.current = { x: t.clientX, y: t.clientY, panX: pan.x, panY: pan.y };
-        }}
-        onTouchMove={(e) => {
-          if (!isViewOnly || !touchPanRef.current || e.touches.length !== 1) return;
-          const t = e.touches[0];
-          setPan({
-            x: touchPanRef.current.panX + (t.clientX - touchPanRef.current.x),
-            y: touchPanRef.current.panY + (t.clientY - touchPanRef.current.y),
-          });
-        }}
-        onTouchEnd={() => {
-          touchPanRef.current = null;
-        }}
-        onTouchCancel={() => {
-          touchPanRef.current = null;
-        }}
+        onWheel={nav.handleWheel}
+        onTouchStart={nav.handleTouchStart}
+        onTouchMove={nav.handleTouchMove}
+        onTouchEnd={nav.handleTouchEnd}
+        onTouchCancel={nav.handleTouchEnd}
         onContextMenu={(e) => e.preventDefault()}
       >
         <defs>
@@ -846,6 +724,7 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
                 flowDirection={solved.wireFlowDirections?.[wire.id] || 'forward'}
                 voltageDropPercent={solved.wireVoltageDropPercents[wire.id] || 0}
                 onSelectWire={(_w, ev) => {
+                  if (toolMode === 'pan' || isSpacePressed) return;
                   if (dmmMode) {
                     onDmmClampWire?.(wire.id);
                   } else {
@@ -854,6 +733,7 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
                 }}
                 onOpenInspector={onOpenInspector}
                 onStartSegmentDrag={(wireId, segIdx, isHoriz, _pt, waypoints, e) => {
+                  if (toolMode === 'pan' || isSpacePressed) return;
                   if (isViewOnly) return;
                   if (isSimulating) {
                     onBlockedEdit?.('simulating');

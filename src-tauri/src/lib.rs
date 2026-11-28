@@ -462,6 +462,9 @@ fn build_app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry
         .item(&PredefinedMenuItem::quit(app, Some("Exit WireWise"))?)
         .build()?;
 
+    let open_keybinds_edit = MenuItemBuilder::with_id("open_keybinds", "Keyboard Shortcuts…")
+        .build(app)?;
+
     let edit_menu = SubmenuBuilder::new(app, "Edit")
         .undo()
         .redo()
@@ -470,10 +473,22 @@ fn build_app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry
         .copy()
         .paste()
         .select_all()
+        .separator()
+        .item(&open_keybinds_edit)
         .build()?;
 
     let view_menu = SubmenuBuilder::new(app, "View")
         .fullscreen()
+        .build()?;
+
+    let edit_keybinds_item = MenuItemBuilder::with_id("open_keybinds", "Edit Keybinds…")
+        .build(app)?;
+    let reset_keybinds_item = MenuItemBuilder::with_id("reset_keybinds", "Reset Keybinds to Defaults")
+        .build(app)?;
+
+    let keybinds_menu = SubmenuBuilder::new(app, "Keybinds")
+        .item(&edit_keybinds_item)
+        .item(&reset_keybinds_item)
         .build()?;
 
     let check_updates_item = MenuItemBuilder::with_id("check_updates", "Check for Updates…")
@@ -487,7 +502,7 @@ fn build_app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry
         .build()?;
 
     MenuBuilder::new(app)
-        .items(&[&file_menu, &edit_menu, &view_menu, &help_menu])
+        .items(&[&file_menu, &edit_menu, &view_menu, &keybinds_menu, &help_menu])
         .build()
 }
 
@@ -558,6 +573,12 @@ pub fn run() {
             Ok(())
         })
         .on_menu_event(|app, event| match event.id().as_ref() {
+            "open_keybinds" => {
+                let _ = app.emit("desktop:open-keybinds", ());
+            }
+            "reset_keybinds" => {
+                let _ = app.emit("desktop:reset-keybinds", ());
+            }
             "check_updates" => {
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
