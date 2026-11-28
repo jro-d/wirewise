@@ -1,7 +1,9 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { ElectricalDevice, ElectricalWire } from '../../types/electrical';
 import { generateSchematicModel, SchematicNode } from '../../core/schematicGenerator';
 import { SolvedCircuit } from '../../core/circuitSolver';
+import { useCanvasNavigation } from '../../hooks/useCanvasNavigation';
+import { CanvasNavHud } from './CanvasNavHud';
 
 interface SchematicCanvasProps {
   devices: ElectricalDevice[];
@@ -30,81 +32,43 @@ export const SchematicCanvas: React.FC<SchematicCanvasProps> = ({
   wires,
   solved,
 }) => {
-  const model = generateSchematicModel(devices, wires);
-  const containerRef = useRef<SVGSVGElement | null>(null);
+  const model = useMemo(() => generateSchematicModel(devices, wires), [devices, wires]);
 
-  // Pan and Zoom Camera Controls
-  const [zoom, setZoom] = useState(1.0);
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const getFitBounds = React.useCallback(() => {
+    if (model.nodes.length === 0) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of model.nodes) {
+      minX = Math.min(minX, n.x - 40);
+      minY = Math.min(minY, n.y - 40);
+      maxX = Math.max(maxX, n.x + 40);
+      maxY = Math.max(maxY, n.y + 40);
+    }
+    return { minX, minY, maxX, maxY };
+  }, [model.nodes]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
-        setIsSpacePressed(true);
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        setIsSpacePressed(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, []);
+  const nav = useCanvasNavigation({
+    minZoom: 0.35,
+    maxZoom: 2.5,
+    initialZoom: 1.0,
+    allowSingleTouchPan: true,
+    getFitBounds,
+  });
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 1 || e.button === 2 || e.altKey || isSpacePressed) {
-      setIsPanning(true);
-      setPanStart({
-        x: e.clientX - pan.x,
-        y: e.clientY - pan.y,
-      });
+    if (nav.shouldPanOnMouseDown(e)) {
+      nav.startPan(e.clientX, e.clientY);
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isPanning) {
-      setPan({
-        x: e.clientX - panStart.x,
-        y: e.clientY - panStart.y,
-      });
-    }
+    nav.updatePan(e.clientX, e.clientY);
   };
 
   const handleMouseUp = () => {
-    setIsPanning(false);
-  };
-
-  // Block page scroll while wheel-zooming (React's onWheel is passive, so use a native listener)
-  React.useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const block = (ev: WheelEvent) => ev.preventDefault();
-    el.addEventListener('wheel', block, { passive: false });
-    return () => el.removeEventListener('wheel', block);
-  }, []);
-
-  const handleWheel = (e: React.WheelEvent) => {
-    const zoomFactor = e.deltaY < 0 ? 1.12 : 0.89;
-    const newZoom = Math.min(2.5, Math.max(0.4, zoom * zoomFactor));
-
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const newPanX = mouseX - (mouseX - pan.x) * (newZoom / zoom);
-    const newPanY = mouseY - (mouseY - pan.y) * (newZoom / zoom);
-
-    setZoom(newZoom);
-    setPan({ x: newPanX, y: newPanY });
+    nav.endPan();
   };
 
   const renderSchematicSymbol = (node: SchematicNode) => {
@@ -449,52 +413,32 @@ export const SchematicCanvas: React.FC<SchematicCanvasProps> = ({
         </div>
       </div>
 
-      {/* Zoom / Pan Controls HUD */}
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-surface/95 border border-border/90 rounded-md p-1.5 shadow-2 backdrop-blur-md">
-        <button
-          onClick={() => setZoom((z) => Math.min(2.5, z + 0.15))}
-          className="w-7 h-7 flex items-center justify-center bg-surface-sunken hover:bg-border text-ink rounded-lg font-bold text-sm transition"
-          title="Zoom In"
-        >
-          +
-        </button>
-        <span className="text-xs font-mono text-ink-muted w-12 text-center font-bold">
-          {Math.round(zoom * 100)}%
-        </span>
-        <button
-          onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}
-          className="w-7 h-7 flex items-center justify-center bg-surface-sunken hover:bg-border text-ink rounded-lg font-bold text-sm transition"
-          title="Zoom Out"
-        >
-          -
-        </button>
-        <button
-          onClick={() => {
-            setZoom(1.0);
-            setPan({ x: 0, y: 0 });
-          }}
-          className="px-2.5 py-1 bg-surface-sunken hover:bg-border text-xs text-ink-muted rounded-lg font-medium transition"
-          title="Reset Camera View"
-        >
-          Reset
-        </button>
-      </div>
+      {/* Zoom / Pan / Trackpad Controls HUD */}
+      <CanvasNavHud
+        zoom={nav.zoom}
+        toolMode={nav.toolMode}
+        onToolModeChange={nav.setToolMode}
+        inputMode={nav.inputMode}
+        onInputModeChange={nav.setInputMode}
+        onZoomIn={nav.zoomIn}
+        onZoomOut={nav.zoomOut}
+        onPanStep={nav.panStep}
+        onFit={nav.fitToView}
+        onReset={nav.resetView}
+      />
 
       <svg
-        ref={containerRef}
-        className={`w-full h-full ${
-          isSpacePressed
-            ? isPanning
-              ? 'cursor-grabbing'
-              : 'cursor-grab'
-            : isPanning
-            ? 'cursor-grabbing'
-            : 'cursor-default'
-        }`}
+        ref={nav.containerRef}
+        className={`w-full h-full touch-none ${nav.cursorClass}`}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
         onMouseDown={handleMouseDown}
-        onWheel={handleWheel}
+        onWheel={nav.handleWheel}
+        onTouchStart={nav.handleTouchStart}
+        onTouchMove={nav.handleTouchMove}
+        onTouchEnd={nav.handleTouchEnd}
+        onTouchCancel={nav.handleTouchEnd}
         onContextMenu={(e) => e.preventDefault()}
       >
         <defs>
@@ -505,7 +449,7 @@ export const SchematicCanvas: React.FC<SchematicCanvasProps> = ({
 
         <rect x="-2000" y="-2000" width="6000" height="6000" fill="url(#schematicGrid)" />
 
-        <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+        <g transform={`translate(${nav.pan.x}, ${nav.pan.y}) scale(${nav.zoom})`}>
           {/* Orthogonal Schematic Connections */}
           <g id="schematic-edges">
             {model.edges.map((edge) => {

@@ -43,6 +43,8 @@ import { applyProtectiveOutcome, needsTick, tickSimulation, TICK_SECONDS } from 
 import { EMBEDDED_PROJECT_ID, NOT_EMBEDDED_PROJECT, LEGACY_EMBEDDED_PROJECT_ID, readEmbeddedProject } from './utils/embeddedProject';
 import { useBreakpoint } from './hooks/useBreakpoint';
 import { UpdateBanner } from './components/layout/UpdateBanner';
+import { KeybindsModal } from './components/layout/KeybindsModal';
+import { isEditableEventTarget, matchesShortcutAction, resetAllShortcuts } from './utils/shortcuts';
 import type { DesktopUpdateStatus } from './types/desktop';
 
 const LOCKED_MESSAGE = 'Stop simulation (■) to modify wiring';
@@ -89,15 +91,27 @@ export const App: React.FC = () => {
   const [reportsInitialTab, setReportsInitialTab] = useState<string | undefined>(undefined);
   const [desktopVersion, setDesktopVersion] = useState<string | undefined>(undefined);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
+  const [isKeybindsOpen, setIsKeybindsOpen] = useState<boolean>(false);
 
   useEffect(() => {
     const bridge = window.wirewiseDesktop;
     if (!bridge) return;
     bridge.getInfo().then((info) => setDesktopVersion(info.version)).catch(() => {});
-    const unsubscribe = bridge.onUpdateStatus((status) => {
+    const unsubscribeUpdate = bridge.onUpdateStatus((status) => {
       setUpdateStatus(status);
     });
-    return unsubscribe;
+    const unsubscribeOpenKeybinds = bridge.onOpenKeybinds?.(() => {
+      setIsKeybindsOpen(true);
+    });
+    const unsubscribeResetKeybinds = bridge.onResetKeybinds?.(() => {
+      resetAllShortcuts();
+      showNotice('Keyboard shortcuts reset to defaults');
+    });
+    return () => {
+      unsubscribeUpdate();
+      unsubscribeOpenKeybinds?.();
+      unsubscribeResetKeybinds?.();
+    };
   }, []);
   const [dmmMode, setDmmMode] = useState<boolean>(false);
   const [rewiringTarget, setRewiringTarget] = useState<{ wireId: string; moveEnd: 'from' | 'to' } | null>(null);
@@ -922,60 +936,156 @@ export const App: React.FC = () => {
     setSelectedGroupIds([]);
   };
 
-  // Global Keyboard Shortcuts (Undo, Redo, Copy, Paste, Rotate, Delete)
+  // Global Keyboard Shortcuts (customizable keybinds + arrow-key device nudging)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+      if (isEditableEventTarget(e.target)) return;
 
-      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
-
-      if (isCtrlOrCmd && e.key.toLowerCase() === 'z') {
+      if (matchesShortcutAction(e, 'panel.keybinds')) {
         e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
+        setIsKeybindsOpen((v) => !v);
+        return;
+      }
+
+      // While KeybindsModal is open, let it own keystrokes exclusively
+      if (isKeybindsOpen) return;
+
+      if (matchesShortcutAction(e, 'sim.toggle')) {
+        e.preventDefault();
+        handleToggleSimulation();
+      } else if (matchesShortcutAction(e, 'sim.reset')) {
+        e.preventDefault();
+        handleResetSimulation();
+      } else if (matchesShortcutAction(e, 'panel.library')) {
+        if (!isViewOnly) {
+          e.preventDefault();
+          setIsLibraryOpen((v) => !v);
         }
-      } else if (isCtrlOrCmd && e.key.toLowerCase() === 'a' && viewMode === 'realistic') {
+      } else if (matchesShortcutAction(e, 'panel.inspector')) {
         e.preventDefault();
-        const ids = project.devices.map(d => d.id);
+        setIsHudOpen((v) => !v);
+      } else if (matchesShortcutAction(e, 'panel.dmm')) {
+        e.preventDefault();
+        setDmmMode((v) => !v);
+        setDmmProbeA(null);
+        setRotationProbes([]);
+        setDmmReadout(null);
+      } else if (matchesShortcutAction(e, 'view.realistic')) {
+        e.preventDefault();
+        setViewMode('realistic');
+      } else if (matchesShortcutAction(e, 'view.split')) {
+        e.preventDefault();
+        setViewMode('split');
+      } else if (matchesShortcutAction(e, 'view.ladder')) {
+        e.preventDefault();
+        setViewMode('ladder');
+      } else if (matchesShortcutAction(e, 'view.schematic')) {
+        e.preventDefault();
+        setViewMode('schematic');
+      } else if (matchesShortcutAction(e, 'view.plc')) {
+        e.preventDefault();
+        setViewMode('plc');
+      } else if (matchesShortcutAction(e, 'view.plan')) {
+        e.preventDefault();
+        setViewMode('plan');
+      } else if (matchesShortcutAction(e, 'edit.undo')) {
+        e.preventDefault();
+        handleUndo();
+      } else if (matchesShortcutAction(e, 'edit.redo')) {
+        e.preventDefault();
+        handleRedo();
+      } else if (matchesShortcutAction(e, 'edit.selectAll') && (viewMode === 'realistic' || viewMode === 'split')) {
+        e.preventDefault();
+        const ids = project.devices.map((d) => d.id);
         setSelectedGroupIds(ids);
         setSelectedDeviceId(ids.length ? ids[ids.length - 1] : null);
-        setSelectedWireIds(project.wires.map(w => w.id));
-      } else if (e.key === 'Escape') {
+        setSelectedWireIds(project.wires.map((w) => w.id));
+      } else if (matchesShortcutAction(e, 'edit.deselect')) {
         setSelectedDeviceId(null);
         setSelectedGroupIds([]);
         setSelectedWireIds([]);
-      } else if (isCtrlOrCmd && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        handleRedo();
-      } else if (isCtrlOrCmd && e.key.toLowerCase() === 'c') {
+      } else if (matchesShortcutAction(e, 'edit.copy')) {
         if (selectedDeviceId) {
-          const dev = project.devices.find(d => d.id === selectedDeviceId);
+          const dev = project.devices.find((d) => d.id === selectedDeviceId);
           if (dev) {
             setClipboardDevice(JSON.parse(JSON.stringify(dev)));
           }
         }
-      } else if (isCtrlOrCmd && e.key.toLowerCase() === 'v') {
+      } else if (matchesShortcutAction(e, 'edit.paste')) {
         if (clipboardDevice) {
           e.preventDefault();
           handleDuplicateDevice(clipboardDevice);
         }
-      } else if (e.key.toLowerCase() === 'r') {
+      } else if (matchesShortcutAction(e, 'edit.duplicate')) {
         if (selectedDeviceId) {
-          const dev = project.devices.find(d => d.id === selectedDeviceId);
+          const dev = project.devices.find((d) => d.id === selectedDeviceId);
+          if (dev) {
+            e.preventDefault();
+            handleDuplicateDevice(dev);
+          }
+        }
+      } else if (matchesShortcutAction(e, 'edit.rotate')) {
+        if (selectedDeviceId) {
+          const dev = project.devices.find((d) => d.id === selectedDeviceId);
           if (dev) {
             e.preventDefault();
             handleRotateDevice(dev);
           }
         }
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      } else if (matchesShortcutAction(e, 'edit.lock')) {
+        if (selectedDeviceId) {
+          e.preventDefault();
+          handleToggleLockSelected();
+        }
+      } else if (matchesShortcutAction(e, 'edit.inspect')) {
+        if (selectedDeviceId || selectedWireIds.length > 0) {
+          e.preventDefault();
+          setInspectorOpen((v) => !v);
+        }
+      } else if (matchesShortcutAction(e, 'edit.delete')) {
         handleDeleteSelected();
+      } else if (
+        (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        (viewMode === 'realistic' || viewMode === 'split')
+      ) {
+        const targets = selectedGroupIds.length > 0 ? selectedGroupIds : selectedDeviceId ? [selectedDeviceId] : [];
+        if (targets.length === 0) return;
+        e.preventDefault();
+        if (isEditBlocked()) return;
+        const step = e.shiftKey ? 1 : snapSize > 0 ? snapSize : 10;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        const moves = targets
+          .map((id) => project.devices.find((d) => d.id === id))
+          .filter((d): d is ElectricalDevice => !!d && !d.state.locked)
+          .map((d) => ({ id: d.id, x: Math.max(10, d.x + dx), y: Math.max(10, d.y + dy) }));
+        if (moves.length === 0) {
+          showNotice('Device position is locked — unlock it to move');
+          return;
+        }
+        pushUndoSnapshot();
+        setProject((prev) => applyDeviceMoves(prev, moves));
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedDeviceId, selectedGroupIds, selectedWireIds, clipboardDevice, project, undoStack, redoStack, viewMode]);
+  }, [
+    isKeybindsOpen,
+    isSimulating,
+    isViewOnly,
+    selectedDeviceId,
+    selectedGroupIds,
+    selectedWireIds,
+    clipboardDevice,
+    project,
+    undoStack,
+    redoStack,
+    viewMode,
+    snapSize,
+  ]);
 
   // Reset simulation: re-arm tripped breakers / RCDs and clear injected earth faults
   const handleResetSimulation = () => {
@@ -1340,6 +1450,7 @@ export const App: React.FC = () => {
               }
             : undefined
         }
+        onOpenKeybinds={() => setIsKeybindsOpen(true)}
       />
 
       {/* Desktop App Online Update Notification Banner */}
@@ -1674,6 +1785,13 @@ export const App: React.FC = () => {
         faultLevelsOn={!!project.shortCircuit?.enabled}
         onToggleFaultLevels={() => setProject((prev) => ({ ...prev, shortCircuit: prev.shortCircuit ? { ...prev.shortCircuit, enabled: !prev.shortCircuit.enabled } : { ...DEFAULT_SHORT_CIRCUIT } }))}
         onToggleCurves={() => setCurvesOpen((v) => !v)}
+        onOpenKeybinds={() => setIsKeybindsOpen(true)}
+      />
+
+      {/* Keyboard Shortcuts / Keybinds Editor Modal */}
+      <KeybindsModal
+        isOpen={isKeybindsOpen}
+        onClose={() => setIsKeybindsOpen(false)}
       />
 
       {/* Guided Labs & Scenarios Modal */}

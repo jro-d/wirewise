@@ -10,6 +10,7 @@ import {
   FileText,
   FlipHorizontal2,
   FolderOpen,
+  Keyboard,
   Layers,
   Library,
   Lock,
@@ -33,6 +34,7 @@ import {
 } from 'lucide-react';
 import { CodeStandard } from '../../types/electrical';
 import { saveTheme } from '../../utils/themeStorage';
+import { useKeybinds } from '../../utils/shortcuts';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { IconButton } from './topbar/IconButton';
 import { MenuButton, MenuEntry } from './topbar/Menu';
@@ -105,9 +107,10 @@ interface TopNavBarProps {
   onToggleFaultLevels?: () => void;
   onOpenReports?: () => void;
   onOpenSafeIsolation?: () => void;
-  // Desktop app updater hooks
+  // Desktop app updater & keybinds hooks
   appVersion?: string;
   onCheckForUpdates?: () => void;
+  onOpenKeybinds?: () => void;
 }
 
 const Divider = () => <div className="hidden md:block w-px h-6 bg-border mx-0.5 shrink-0" />;
@@ -160,9 +163,11 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   onOpenSafeIsolation,
   appVersion,
   onCheckForUpdates,
+  onOpenKeybinds,
 }) => {
   const hz = standard === 'PEC' ? 60 : 50;
   const theme = useTheme();
+  const { getLabel } = useKeybinds();
   const breakpoint = useBreakpoint();
   const isPhone = isViewOnly ?? breakpoint === 'phone';
   const isDesktop = breakpoint === 'desktop' && !isPhone;
@@ -339,6 +344,15 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
       onSelect: theme.toggle,
     }
   );
+  if (onOpenKeybinds) {
+    overflowItems.push({
+      id: 'open-keybinds',
+      label: 'Keyboard shortcuts…',
+      icon: Keyboard,
+      shortcut: getLabel('panel.keybinds'),
+      onSelect: onOpenKeybinds,
+    });
+  }
   if (onCheckForUpdates) {
     overflowItems.push(
       { kind: 'divider', id: 'overflow-div-desktop' },
@@ -397,7 +411,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
               <IconButton
                 icon={Undo2}
                 label="Undo"
-                shortcut="Ctrl+Z"
+                shortcut={getLabel('edit.undo')}
                 disabled={!canUndo || isSimulating}
                 onClick={onUndo}
                 size={btnSize}
@@ -405,7 +419,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
               <IconButton
                 icon={Redo2}
                 label="Redo"
-                shortcut="Ctrl+Y"
+                shortcut={getLabel('edit.redo')}
                 disabled={!canRedo || isSimulating}
                 onClick={onRedo}
                 size={btnSize}
@@ -520,11 +534,22 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
           <IconButton
             icon={PanelRight}
             label={isHudOpen ? 'Hide code inspector' : 'Show code inspector'}
+            shortcut={getLabel('panel.inspector')}
             active={isHudOpen}
             onClick={onToggleHud}
             size={btnSize}
             alignTooltip="right"
           />
+          {!isPhone && onOpenKeybinds && (
+            <IconButton
+              icon={Keyboard}
+              label="Edit keyboard shortcuts"
+              shortcut={getLabel('panel.keybinds')}
+              onClick={onOpenKeybinds}
+              size={btnSize}
+              alignTooltip="right"
+            />
+          )}
         </div>
 
         {/* Slot 8: Overflow menu */}

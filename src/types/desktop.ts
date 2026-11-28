@@ -27,6 +27,8 @@ export interface WireWiseDesktopBridge {
   downloadUpdate: () => Promise<void>;
   installUpdate: () => Promise<void>;
   onUpdateStatus: (callback: (status: DesktopUpdateStatus) => void) => () => void;
+  onOpenKeybinds?: (callback: () => void) => () => void;
+  onResetKeybinds?: (callback: () => void) => () => void;
 }
 
 declare global {

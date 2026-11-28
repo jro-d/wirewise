@@ -29,6 +29,18 @@ export interface LadderVerticalProps {
   railBottomLabel: string;
   lampColors: Record<string, string>;
   zoom: number;
+  pan?: { x: number; y: number };
+  svgRef?: React.RefObject<SVGSVGElement | null>;
+  cursorClass?: string;
+  onCanvasMouseDown?: (e: React.MouseEvent) => void;
+  onCanvasMouseMove?: (e: React.MouseEvent) => void;
+  onCanvasMouseUp?: () => void;
+  onCanvasWheel?: (e: React.WheelEvent) => void;
+  onCanvasTouchStart?: (e: React.TouchEvent) => void;
+  onCanvasTouchMove?: (e: React.TouchEvent) => void;
+  onCanvasTouchEnd?: () => void;
+  onCenterPoint?: (x: number, y: number) => void;
+  onReportBounds?: (bounds: { minX: number; minY: number; maxX: number; maxY: number }) => void;
   selectedElId?: string | null;
   selectedDeviceId?: string | null;
   hoverDeviceId?: string | null;
@@ -403,8 +415,9 @@ function XrefTable({ ctx, out, x, y }: { ctx: Ctx; out: NetworkOutput; x: number
 }
 
 export const LadderVertical: React.FC<LadderVerticalProps> = (props) => {
-  const { networks, zoom } = props;
-  const svgRef = useRef<SVGSVGElement | null>(null);
+  const { networks, zoom, pan } = props;
+  const localSvgRef = useRef<SVGSVGElement | null>(null);
+  const svgRef = props.svgRef ?? localSvgRef;
 
   const layout = useMemo(() => {
     const info = networks.map((net) => {
@@ -512,20 +525,64 @@ export const LadderVertical: React.FC<LadderVerticalProps> = (props) => {
     });
   });
 
-  // scroll to and flash a contact after a cross-reference click
+  // scroll / pan to flash a contact after a cross-reference click
   const focusId = props.focusEl?.id;
   const focusNonce = props.focusEl?.nonce;
   useEffect(() => {
+    props.onReportBounds?.({ minX: 0, minY: 0, maxX: layout.width, maxY: height });
+  }, [layout.width, height, props.onReportBounds]);
+
+  useEffect(() => {
     if (!focusId) return;
     const p = pos.get(focusId);
+    if (!p) return;
+    if (props.onCenterPoint) {
+      props.onCenterPoint(p.x, p.y);
+      return;
+    }
     const host = svgRef.current?.parentElement;
-    if (!p || !host) return;
+    if (!host) return;
     host.scrollTo({ left: Math.max(0, p.x * zoom - host.clientWidth / 2), top: Math.max(0, p.y * zoom - host.clientHeight / 2), behavior: 'smooth' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId, focusNonce]);
 
+  if (pan) {
+    return (
+      <svg
+        ref={svgRef as React.RefObject<SVGSVGElement>}
+        className={`w-full h-full touch-none ${props.cursorClass ?? 'cursor-default'}`}
+        onMouseDown={props.onCanvasMouseDown}
+        onMouseMove={props.onCanvasMouseMove}
+        onMouseUp={props.onCanvasMouseUp}
+        onMouseLeave={props.onCanvasMouseUp}
+        onWheel={props.onCanvasWheel}
+        onTouchStart={props.onCanvasTouchStart}
+        onTouchMove={props.onCanvasTouchMove}
+        onTouchEnd={props.onCanvasTouchEnd}
+        onTouchCancel={props.onCanvasTouchEnd}
+        onContextMenu={(e) => e.preventDefault()}
+        role="img"
+        aria-label="Control ladder, vertical current paths"
+      >
+        <defs>
+          <pattern id="ladderGridV" width="24" height="24" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.8" fill="var(--border-strong)" opacity="0.5" />
+          </pattern>
+        </defs>
+        <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+          <rect x={-2000} y={-2000} width={6000} height={6000} fill="url(#ladderGridV)" />
+          <line x1={LEFT - 20} y1={TOP_Y} x2={layout.width - 20} y2={TOP_Y} stroke={props.railsLive ? 'var(--ok)' : 'var(--ink)'} strokeWidth={3.5} strokeLinecap="round" />
+          <line x1={LEFT - 20} y1={railY} x2={layout.width - 20} y2={railY} stroke="var(--ink)" strokeWidth={3.5} strokeLinecap="round" />
+          <text x={LEFT - 20} y={TOP_Y - 10} fontSize={12} fontWeight={700} fill={props.railsLive ? 'var(--ok)' : 'var(--ink)'} fontFamily="var(--font-mono)">{props.railTopLabel}</text>
+          <text x={LEFT - 20} y={railY + 22} fontSize={12} fontWeight={700} fill="var(--ink)" fontFamily="var(--font-mono)">{props.railBottomLabel}</text>
+          {ctxParts}
+        </g>
+      </svg>
+    );
+  }
+
   return (
-    <svg ref={svgRef} width={layout.width * zoom} height={height * zoom} viewBox={`0 0 ${layout.width} ${height}`} className="block" role="img" aria-label="Control ladder, vertical current paths">
+    <svg ref={svgRef as React.RefObject<SVGSVGElement>} width={layout.width * zoom} height={height * zoom} viewBox={`0 0 ${layout.width} ${height}`} className="block" role="img" aria-label="Control ladder, vertical current paths">
       <defs>
         <pattern id="ladderGridV" width="24" height="24" patternUnits="userSpaceOnUse">
           <circle cx="1" cy="1" r="0.8" fill="var(--border-strong)" opacity="0.5" />
