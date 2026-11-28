@@ -22,9 +22,12 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({
   if ((status.state === 'not-available' || status.state === 'error') && !status.manual) return null;
 
   const isError = status.state === 'error';
-  const isOk = status.state === 'downloaded' || status.state === 'not-available';
+  const isReady = status.state === 'downloaded';
+  const isOk = status.state === 'not-available';
   const toneClass = isError
     ? 'bg-danger-soft border-danger/40 text-danger'
+    : isReady
+    ? 'bg-surface-sunken border-border text-ink'
     : isOk
     ? 'bg-ok-soft border-ok/40 text-ok'
     : 'bg-brand-soft border-brand/40 text-brand-ink';
@@ -33,15 +36,14 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({
     <div
       role="status"
       aria-live="polite"
-      className={`shrink-0 border-b px-3 py-1.5 text-xs flex items-center justify-between gap-3 z-20 select-none ${toneClass}`}
+      className={`banner-in shrink-0 border-b px-3 py-1.5 text-xs flex items-center justify-between gap-3 z-20 select-none ${toneClass}`}
     >
       <div className="flex items-center gap-2 min-w-0">
         {status.state === 'checking' && <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />}
         {status.state === 'available' && <Download className="w-3.5 h-3.5 shrink-0" />}
         {status.state === 'downloading' && <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />}
-        {(status.state === 'downloaded' || status.state === 'not-available') && (
-          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-        )}
+        {status.state === 'downloaded' && <Download className="w-3.5 h-3.5 shrink-0" />}
+        {status.state === 'not-available' && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
         {status.state === 'error' && <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
 
         <span className="font-medium truncate">
@@ -51,7 +53,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({
           {status.state === 'downloading' &&
             `Downloading WireWise update… ${status.percent ?? 0}%`}
           {status.state === 'downloaded' &&
-            `WireWise v${status.version} is downloaded and ready to install.`}
+            `Update v${status.version} is ready.`}
           {status.state === 'not-available' &&
             (status.message || `WireWise v${status.version || currentVersion || '1.0.0'} is up to date.`)}
           {status.state === 'error' &&
@@ -84,10 +86,10 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({
           <button
             type="button"
             onClick={onInstall}
-            className="flex items-center gap-1 h-7 px-2.5 rounded-md bg-ok text-surface hover:opacity-90 text-xs font-semibold shadow-1 transition focus-visible:outline-none focus-visible:shadow-focus"
+            className="flex items-center gap-1 h-7 px-2.5 rounded-md bg-brand hover:bg-brand-strong text-on-brand text-xs font-semibold shadow-1 transition focus-visible:outline-none focus-visible:shadow-focus"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Restart &amp; update</span>
+            <span>Restart to Update</span>
           </button>
         )}
 

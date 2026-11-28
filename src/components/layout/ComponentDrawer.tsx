@@ -329,7 +329,7 @@ export const ComponentDrawer: React.FC<ComponentDrawerProps> = ({
 
   return (
     <>
-      <aside className="wirewise-panel wirewise-scroll-dark absolute top-3 left-3 z-30 w-80 max-h-[calc(100%-36px)] rounded-lg bg-surface backdrop-blur-md shadow-2 border-2 border-border-strong/90 ring-1 ring-white/10 flex flex-col overflow-hidden select-none text-ink">
+      <aside data-tour="library-drawer" className="wirewise-panel wirewise-scroll-dark absolute top-3 left-3 z-30 w-80 max-h-[calc(100%-36px)] rounded-lg bg-surface backdrop-blur-md shadow-2 border-2 border-border-strong/90 ring-1 ring-white/10 flex flex-col overflow-hidden select-none text-ink">
         {/* Floating window title bar */}
         <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border bg-surface-sunken">
           <span className="flex items-center gap-2 text-[11px] font-bold text-ink uppercase tracking-wider font-mono">

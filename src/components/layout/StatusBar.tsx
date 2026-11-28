@@ -70,7 +70,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   };
 
   return (
-    <footer className="h-7 shrink-0 flex items-center justify-between gap-4 px-3 bg-surface-sunken border-t border-border text-[11px] font-mono text-ink-muted select-none z-20">
+    <footer data-tour="statusbar" className="h-7 shrink-0 flex items-center justify-between gap-4 px-3 bg-surface-sunken border-t border-border text-[11px] font-mono text-ink-muted select-none z-20">
       <div className="flex items-center gap-4 min-w-0">
         <span className="w-28 tabular-nums" title="Cursor position in workbench units">
           X: {Math.round(cursorX)}, Y: {Math.round(cursorY)}

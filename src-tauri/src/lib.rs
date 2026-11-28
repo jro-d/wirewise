@@ -491,13 +491,32 @@ fn build_app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry
         .item(&reset_keybinds_item)
         .build()?;
 
+    // Text after a tab is drawn as a key hint. These are not menu accelerators: the web view
+    // handles the keys (including any rebinding), so each press acts once.
+    let open_help_item =
+        MenuItemBuilder::with_id("open_help", "How to Use WireWise…\tF1").build(app)?;
+    let restart_walkthrough_item =
+        MenuItemBuilder::with_id("restart_walkthrough", "Restart Walkthrough").build(app)?;
+    let help_keybinds_item =
+        MenuItemBuilder::with_id("open_keybinds", "Keyboard Shortcuts…\tCtrl+/").build(app)?;
+    let update_logs_item =
+        MenuItemBuilder::with_id("open_update_logs", "Update Logs…").build(app)?;
     let check_updates_item = MenuItemBuilder::with_id("check_updates", "Check for Updates…")
         .build(app)?;
+    let standards_item =
+        MenuItemBuilder::with_id("open_standards_notice", "Code Standards Notice…").build(app)?;
     let about_item = MenuItemBuilder::with_id("about", "About WireWise").build(app)?;
 
     let help_menu = SubmenuBuilder::new(app, "Help")
+        .item(&open_help_item)
+        .item(&restart_walkthrough_item)
+        .separator()
+        .item(&help_keybinds_item)
+        .separator()
+        .item(&update_logs_item)
         .item(&check_updates_item)
         .separator()
+        .item(&standards_item)
         .item(&about_item)
         .build()?;
 
@@ -578,6 +597,18 @@ pub fn run() {
             }
             "reset_keybinds" => {
                 let _ = app.emit("desktop:reset-keybinds", ());
+            }
+            "open_help" => {
+                let _ = app.emit("desktop:open-help", ());
+            }
+            "restart_walkthrough" => {
+                let _ = app.emit("desktop:restart-walkthrough", ());
+            }
+            "open_update_logs" => {
+                let _ = app.emit("desktop:open-update-logs", ());
+            }
+            "open_standards_notice" => {
+                let _ = app.emit("desktop:open-standards-notice", ());
             }
             "check_updates" => {
                 let handle = app.clone();

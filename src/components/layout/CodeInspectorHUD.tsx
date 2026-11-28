@@ -46,7 +46,7 @@ export const CodeInspectorHUD: React.FC<CodeInspectorHUDProps> = ({
   if (troubleshoot) {
     const tripped = solved.trippedDevices.length;
     return (
-      <aside className="wirewise-console wirewise-scroll-dark w-[21.5rem] shrink-0 bg-console border-l-2 border-console-line shadow-2 flex flex-col h-full overflow-hidden select-none z-10 font-sans text-console-ink">
+      <aside data-tour="inspector" className="wirewise-console wirewise-scroll-dark w-[21.5rem] shrink-0 bg-console border-l-2 border-console-line shadow-2 flex flex-col h-full overflow-hidden select-none z-10 font-sans text-console-ink">
         <div className="p-3.5 border-b border-console-line bg-console-raised">
           <span className="text-[11px] font-semibold text-console-muted uppercase tracking-[0.08em] font-display block">TROUBLESHOOTING</span>
           <h2 className="text-xs font-bold text-console-ink uppercase tracking-wider font-mono mt-0.5">Symptoms only</h2>
@@ -67,7 +67,7 @@ export const CodeInspectorHUD: React.FC<CodeInspectorHUDProps> = ({
   }
 
   return (
-    <aside className="wirewise-console wirewise-scroll-dark w-[21.5rem] shrink-0 bg-console border-l-2 border-console-line shadow-2 flex flex-col h-full overflow-hidden select-none z-10 font-sans text-console-ink">
+    <aside data-tour="inspector" className="wirewise-console wirewise-scroll-dark w-[21.5rem] shrink-0 bg-console border-l-2 border-console-line shadow-2 flex flex-col h-full overflow-hidden select-none z-10 font-sans text-console-ink">
       {/* Header */}
       <div className="p-3.5 border-b border-console-line bg-console-raised flex items-center justify-between shadow-sm">
         <div>

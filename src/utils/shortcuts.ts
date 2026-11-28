@@ -31,6 +31,7 @@ export type ShortcutActionId =
   | 'panel.inspector'
   | 'panel.dmm'
   | 'panel.keybinds'
+  | 'panel.help'
   | 'view.realistic'
   | 'view.split'
   | 'view.ladder'
@@ -229,6 +230,13 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   },
 
   // Views & Panels
+  {
+    id: 'panel.help',
+    category: 'Views & Panels',
+    label: 'Open Help (How to Use)',
+    description: 'Open the How to Use guide',
+    defaultCombo: 'F1',
+  },
   {
     id: 'view.realistic',
     category: 'Views & Panels',

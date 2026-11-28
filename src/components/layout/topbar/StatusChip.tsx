@@ -40,6 +40,7 @@ export const StatusChip: React.FC<StatusChipProps> = ({
       <Tooltip label={tipLabel} align="right">
         <button
           type="button"
+          data-tour="status-chip"
           onClick={isTripped ? onResetSimulation : onToggleHud}
           aria-label={tipLabel}
           className={`flex items-center gap-1.5 rounded-md border text-xs font-bold shadow-1 transition motion-reduce:transition-none shrink-0 focus-visible:outline-none focus-visible:shadow-focus ${heightClass} ${toneClass}`}

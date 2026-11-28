@@ -630,7 +630,9 @@ export const WiringCanvas: React.FC<WiringCanvasProps> = ({
 
   return (
     <div
-      className="relative w-full h-full bg-canvas overflow-hidden select-none"
+      data-tour="canvas"
+      tabIndex={-1}
+      className="relative w-full h-full bg-canvas overflow-hidden select-none focus:outline-none focus-visible:shadow-none"
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >

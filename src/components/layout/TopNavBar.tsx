@@ -5,14 +5,17 @@ import {
   AlignHorizontalJustifyCenter,
   AlignVerticalJustifyCenter,
   BookOpen,
+  CircleHelp,
   Download,
   FileCode2,
   FileText,
   FlipHorizontal2,
   FolderOpen,
   Keyboard,
+  Info,
   Layers,
   Library,
+  List,
   Lock,
   Moon,
   MoreHorizontal,
@@ -35,6 +38,8 @@ import {
 import { CodeStandard } from '../../types/electrical';
 import { saveTheme } from '../../utils/themeStorage';
 import { useKeybinds } from '../../utils/shortcuts';
+import { APP_VERSION } from '../../utils/appVersion';
+import type { HelpSectionId } from '../../data/helpContent';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { IconButton } from './topbar/IconButton';
 import { MenuButton, MenuEntry } from './topbar/Menu';
@@ -60,6 +65,7 @@ interface TopNavBarProps {
   standard: CodeStandard;
   onStandardChange: (std: CodeStandard) => void;
   gridVoltage: number;
+  gridFrequency: number;
   viewMode: TopbarViewId;
   onViewModeChange: (mode: TopbarViewId) => void;
   isCompliant: boolean;
@@ -111,6 +117,13 @@ interface TopNavBarProps {
   appVersion?: string;
   onCheckForUpdates?: () => void;
   onOpenKeybinds?: () => void;
+  // Help menu
+  onOpenHelp: (section?: HelpSectionId) => void;
+  /** Omitted on phones, where the walkthrough does not run */
+  onRestartWalkthrough?: () => void;
+  onOpenUpdateLogs: () => void;
+  /** What's New was closed without "Got it": a dot marks Help until Update Logs is opened */
+  hasUnreadNotes?: boolean;
 }
 
 const Divider = () => <div className="hidden md:block w-px h-6 bg-border mx-0.5 shrink-0" />;
@@ -119,6 +132,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   standard,
   onStandardChange,
   gridVoltage,
+  gridFrequency,
   viewMode,
   onViewModeChange,
   isCompliant,
@@ -164,8 +178,11 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   appVersion,
   onCheckForUpdates,
   onOpenKeybinds,
+  onOpenHelp,
+  onRestartWalkthrough,
+  onOpenUpdateLogs,
+  hasUnreadNotes = false,
 }) => {
-  const hz = standard === 'PEC' ? 60 : 50;
   const theme = useTheme();
   const { getLabel } = useKeybinds();
   const breakpoint = useBreakpoint();
@@ -264,6 +281,58 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
     });
   }
 
+  const keybindsItem: MenuEntry | null = onOpenKeybinds
+    ? {
+        id: 'open-keybinds',
+        label: 'Keyboard shortcuts…',
+        icon: Keyboard,
+        shortcut: getLabel('panel.keybinds'),
+        onSelect: onOpenKeybinds,
+      }
+    : null;
+
+  // One list for the desktop Help menu and the Help group in the tablet / phone overflow: same items, same order.
+  // Touch layouts show no key hints; phones are read-only, so they get no walkthrough.
+  const helpItems: MenuEntry[] = [
+    {
+      id: 'help-guide',
+      label: isPhone ? 'How to Use' : 'How to Use WireWise',
+      note: isPhone ? '· read only' : undefined,
+      icon: BookOpen,
+      shortcut: isDesktop ? getLabel('panel.help') : undefined,
+      onSelect: () => onOpenHelp(),
+    },
+  ];
+  if (onRestartWalkthrough && !isPhone) {
+    helpItems.push({ id: 'help-walkthrough', label: 'Restart Walkthrough', icon: RotateCcw, onSelect: onRestartWalkthrough });
+  }
+  if (onOpenKeybinds && !isPhone) {
+    helpItems.push({
+      id: 'help-keybinds',
+      label: 'Keyboard Shortcuts',
+      icon: Keyboard,
+      shortcut: isDesktop ? getLabel('panel.keybinds') : undefined,
+      onSelect: onOpenKeybinds,
+    });
+  }
+  if (!isPhone) helpItems.push({ kind: 'divider', id: 'help-div-history' });
+  helpItems.push({ id: 'help-updates', label: 'Update Logs', icon: List, badge: `v${APP_VERSION}`, onSelect: onOpenUpdateLogs });
+  if (!isPhone) {
+    helpItems.push({ id: 'help-standards', label: 'Code Standards Notice', icon: Info, onSelect: () => onOpenHelp('standards') });
+  }
+
+  const standardLabel = standard === 'PEC' ? 'PEC 2017' : 'IEC 60364';
+  const desktopHelpMenu: MenuEntry[] = [
+    { kind: 'header', id: 'help-header', label: 'Help' },
+    ...helpItems,
+    {
+      kind: 'footer',
+      id: 'help-version',
+      label: `WireWise v${APP_VERSION} · ${standardLabel} · ${gridFrequency} Hz`,
+      onSelect: onOpenUpdateLogs,
+    },
+  ];
+
   const overflowItems: MenuEntry[] = [];
   if (!isPhone) {
     overflowItems.push(
@@ -332,7 +401,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
     },
     {
       id: 'std-iec',
-      label: `IEC 60364 (${hz} Hz, mm²)`,
+      label: 'IEC 60364 (50 Hz, mm²)',
       active: standard === 'IEC',
       onSelect: () => onStandardChange('IEC'),
     },
@@ -344,14 +413,10 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
       onSelect: theme.toggle,
     }
   );
-  if (onOpenKeybinds) {
-    overflowItems.push({
-      id: 'open-keybinds',
-      label: 'Keyboard shortcuts…',
-      icon: Keyboard,
-      shortcut: getLabel('panel.keybinds'),
-      onSelect: onOpenKeybinds,
-    });
+  // On tablets the shortcuts item sits in the Help group below
+  if (keybindsItem && (isDesktop || isPhone)) overflowItems.push(keybindsItem);
+  if (!isDesktop) {
+    overflowItems.push({ kind: 'divider', id: 'overflow-div-help' }, { kind: 'header', id: 'overflow-help-header', label: 'Help' }, ...helpItems);
   }
   if (onCheckForUpdates) {
     overflowItems.push(
@@ -375,7 +440,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
     : 'Energize the grid and start simulation';
 
   return (
-    <header className="bg-surface border-b border-border px-2.5 md:px-3 h-12 md:h-14 shrink-0 z-30 select-none shadow-1 flex items-center justify-between gap-1.5 md:gap-2">
+    <header data-tour="topbar" className="bg-surface border-b border-border px-2.5 md:px-3 h-12 md:h-14 shrink-0 z-40 select-none shadow-1 flex items-center justify-between gap-1.5 md:gap-2">
       {/* ───────── LEFT GROUP: Brand, History, File ───────── */}
       <div className="flex items-center gap-1.5 min-w-0">
         {/* Slot 1: Brand + active lab chip */}
@@ -393,9 +458,10 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
             <Tooltip label="Open example wirings & learning labs" align="left">
               <button
                 type="button"
+                data-tour="examples"
                 onClick={onOpenLabs}
                 aria-label="Open example wirings and learning labs"
-                className="h-7 px-2 rounded-md border border-border bg-surface-sunken hover:bg-surface-hover text-[11px] font-mono text-ink-muted hover:text-ink truncate max-w-[180px] transition motion-reduce:transition-none focus-visible:outline-none focus-visible:shadow-focus"
+                className="h-7 px-2 rounded-md border border-border bg-surface-sunken hover:bg-surface-hover text-[11px] font-mono text-ink-muted hover:text-ink truncate max-w-[104px] 2xl:max-w-[180px] transition motion-reduce:transition-none focus-visible:outline-none focus-visible:shadow-focus"
               >
                 {activeLabTitle || 'Blank Installation'}
               </button>
@@ -437,6 +503,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
             items={fileItems}
             size={btnSize}
             showChevron
+            dataTour="file-menu"
           />
         )}
       </div>
@@ -447,6 +514,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
         <Tooltip label={runTooltip}>
           <button
             type="button"
+            data-tour="simulate"
             onClick={onToggleSimulation}
             aria-label={runTooltip}
             aria-pressed={isSimulating}
@@ -529,6 +597,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
               disabled={isSimulating}
               onClick={onToggleLibrary}
               size={btnSize}
+              dataTour="library-toggle"
             />
           )}
           <IconButton
@@ -539,6 +608,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
             onClick={onToggleHud}
             size={btnSize}
             alignTooltip="right"
+            dataTour="inspector-toggle"
           />
           {!isPhone && onOpenKeybinds && (
             <IconButton
@@ -552,13 +622,31 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
           )}
         </div>
 
-        {/* Slot 8: Overflow menu */}
+        {/* Slot 8: Help (desktop; tablet and phone keep it in the overflow menu) */}
+        {isDesktop && (
+          <MenuButton
+            icon={CircleHelp}
+            label={hasUnreadNotes ? 'Help, unread release notes' : 'Help'}
+            items={desktopHelpMenu}
+            size={btnSize}
+            align="right"
+            openTone="probe"
+            dot={hasUnreadNotes}
+            panelClassName="w-[280px]"
+          />
+        )}
+
+        {/* Slot 9: Overflow menu */}
         <MenuButton
           icon={MoreHorizontal}
-          label="More tools and settings"
+          label={hasUnreadNotes && !isDesktop ? 'More tools and settings, unread release notes' : 'More tools and settings'}
           items={overflowItems}
           size={btnSize}
           align="right"
+          dataTour="overflow-menu"
+          dot={hasUnreadNotes && !isDesktop}
+          scrollable={!isDesktop}
+          sheet={isPhone}
         />
       </div>
     </header>
