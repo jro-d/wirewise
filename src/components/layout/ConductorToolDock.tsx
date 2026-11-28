@@ -43,6 +43,7 @@ export const ConductorToolDock: React.FC<ConductorToolDockProps> = ({
 
   return (
     <div
+      data-tour="conductor-dock"
       className={`shrink-0 bg-surface/90 border-b border-border px-3 select-none z-20 ${
         isLocked ? 'opacity-60' : ''
       }`}

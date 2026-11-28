@@ -320,6 +320,7 @@ export const DeviceRenderer: React.FC<DeviceRendererProps> = ({
 
   return (
     <g
+      data-tour-device={device.type}
       onMouseDown={(e) => onDeviceMouseDown(device, e)}
       onDoubleClick={(e) => {
         if ((e.target as Element).closest?.('[data-terminal]')) return;

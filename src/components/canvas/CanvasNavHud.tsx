@@ -59,6 +59,7 @@ export const CanvasNavHud: React.FC<CanvasNavHudProps> = ({
   return (
     <div
       role="toolbar"
+      data-tour="canvas-hud"
       aria-label="Canvas navigation controls"
       onMouseDown={(e) => e.stopPropagation()}
       className={`absolute ${className} z-20 flex flex-wrap items-center gap-1 bg-surface/95 border border-border rounded-md p-1 shadow-2 backdrop-blur-md select-none`}

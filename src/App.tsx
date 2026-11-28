@@ -44,12 +44,25 @@ import { EMBEDDED_PROJECT_ID, NOT_EMBEDDED_PROJECT, LEGACY_EMBEDDED_PROJECT_ID, 
 import { useBreakpoint } from './hooks/useBreakpoint';
 import { UpdateBanner } from './components/layout/UpdateBanner';
 import { KeybindsModal } from './components/layout/KeybindsModal';
-import { isEditableEventTarget, matchesShortcutAction, resetAllShortcuts } from './utils/shortcuts';
+import { getShortcutCombo, isEditableEventTarget, matchesShortcutAction, resetAllShortcuts } from './utils/shortcuts';
 import type { DesktopUpdateStatus } from './types/desktop';
+import { HelpPanel } from './components/help/HelpPanel';
+import { UpdateLogsModal, WhatsNewModal } from './components/help/ReleaseNotes';
+import { Walkthrough, WalkthroughExit } from './components/help/Walkthrough';
+import type { HelpSectionId } from './data/helpContent';
+import type { TourAction } from './data/walkthroughSteps';
+import { RELEASES } from './data/changelog';
+import { APP_VERSION } from './utils/appVersion';
+import { guideStore, planLaunch } from './utils/guideStorage';
 
 const LOCKED_MESSAGE = 'Stop simulation (■) to modify wiring';
+/** Delay before the first-run walkthrough, so the canvas has painted */
+const WALKTHROUGH_DELAY_MS = 600;
+const CURRENT_RELEASE = RELEASES.find((r) => r.version === APP_VERSION);
 
 type ViewMode = 'realistic' | 'split' | 'ladder' | 'schematic' | 'plc' | 'plan';
+/** Help, What's New and Update Logs: one open at a time */
+type GuidePanel = { kind: 'help'; section: HelpSectionId } | { kind: 'whats-new' } | { kind: 'updates' };
 
 function loadEmbeddedProject(): ElectricalProject | null {
   try {
@@ -145,10 +158,10 @@ export const App: React.FC = () => {
   // Transient status notice (toast)
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showNotice = useCallback((message: string) => {
+  const showNotice = useCallback((message: string, durationMs: number = 2600) => {
     setNotice(message);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setNotice(null), 2600);
+    noticeTimer.current = setTimeout(() => setNotice(null), durationMs);
   }, []);
   useEffect(() => () => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -271,6 +284,105 @@ export const App: React.FC = () => {
 
   // Lab modal state
   const [isLabModalOpen, setIsLabModalOpen] = useState(false);
+
+  // ── Guidance: first-run walkthrough, Help, What's New and Update Logs ────────────────────
+  const [guidePanel, setGuidePanel] = useState<GuidePanel | null>(null);
+  const [walkthroughStep, setWalkthroughStep] = useState<number | null>(null);
+  const [unreadNotes, setUnreadNotes] = useState(() => guideStore.hasUnreadNotes());
+  // Read before the share-link effect clears the hash
+  const [openedFromFile] = useState(() => isShareHash(window.location.hash) || readEmbeddedProject(document) !== null);
+  const whatsNewPending = useRef(false);
+
+  /** What's New is being closed: remember this version, with or without the dot on Help */
+  const settleWhatsNew = (unread: boolean) => {
+    if (!whatsNewPending.current) return;
+    whatsNewPending.current = false;
+    guideStore.setLastSeenVersion(APP_VERSION);
+    guideStore.setUnreadNotes(unread);
+    setUnreadNotes(unread);
+  };
+
+  const closeOtherDialogs = () => {
+    setIsKeybindsOpen(false);
+    setIsLabModalOpen(false);
+    setReportsOpen(false);
+  };
+
+  const openHelp = (section: HelpSectionId = 'start') => {
+    settleWhatsNew(false);
+    closeOtherDialogs();
+    setGuidePanel({ kind: 'help', section });
+  };
+
+  const openUpdateLogs = () => {
+    settleWhatsNew(false);
+    guideStore.setUnreadNotes(false);
+    setUnreadNotes(false);
+    closeOtherDialogs();
+    setGuidePanel({ kind: 'updates' });
+  };
+
+  const restartWalkthrough = () => {
+    settleWhatsNew(false);
+    closeOtherDialogs();
+    setGuidePanel(null);
+    setWalkthroughStep(0);
+  };
+
+  const closeWalkthrough = (reason: WalkthroughExit) => {
+    guideStore.markWalkthroughSeen();
+    setWalkthroughStep(null);
+    if (reason === 'skip') {
+      showNotice('Walkthrough closed. Restart it from Help.', 4000);
+    } else if (reason === 'labs') {
+      setIsLabModalOpen(true);
+    } else {
+      if (viewMode !== 'split') setViewMode('realistic');
+      window.requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-tour="canvas"]')?.focus());
+    }
+  };
+
+  const handleTourAction = (action: TourAction) => {
+    if (action === 'open-library') setIsLibraryOpen(true);
+    else if (action === 'open-inspector') setIsHudOpen(true);
+    else setViewMode('realistic');
+  };
+
+  // Once per launch: the walkthrough on a first run, otherwise What's New after an update
+  useEffect(() => {
+    const plan = planLaunch({
+      appVersion: APP_VERSION,
+      walkthroughSeen: guideStore.walkthroughSeen(),
+      lastSeenVersion: guideStore.lastSeenVersion(),
+      hasReleaseNotes: !!CURRENT_RELEASE,
+      openedFromFile,
+      viewOnly: isViewOnly,
+    });
+    if (plan.storeVersion) guideStore.setLastSeenVersion(APP_VERSION);
+    if (plan.whatsNew) {
+      whatsNewPending.current = true;
+      setGuidePanel({ kind: 'whats-new' });
+    }
+    if (!plan.walkthrough) return;
+    const timer = window.setTimeout(() => setWalkthroughStep(0), WALKTHROUGH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Native Help menu (desktop app) sends the same actions as the Help button
+  useEffect(() => {
+    const bridge = window.wirewiseDesktop;
+    if (!bridge) return;
+    const unsubscribe = [
+      bridge.onOpenHelp?.(() => openHelp()),
+      bridge.onRestartWalkthrough?.(restartWalkthrough),
+      bridge.onOpenUpdateLogs?.(openUpdateLogs),
+      bridge.onOpenStandardsNotice?.(() => openHelp('standards')),
+    ];
+    return () => unsubscribe.forEach((off) => off?.());
+    // The handlers only call state setters and the guide store, so the first render's versions stay valid
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // File input ref for JSON import
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -939,16 +1051,24 @@ export const App: React.FC = () => {
   // Global Keyboard Shortcuts (customizable keybinds + arrow-key device nudging)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A function key cannot collide with typing, so F1 opens Help from inside text fields too
+      if (matchesShortcutAction(e, 'panel.help') && (/^F\d+$/.test(getShortcutCombo('panel.help')) || !isEditableEventTarget(e.target))) {
+        e.preventDefault();
+        openHelp();
+        return;
+      }
       if (isEditableEventTarget(e.target)) return;
 
       if (matchesShortcutAction(e, 'panel.keybinds')) {
         e.preventDefault();
+        setGuidePanel(null);
+        settleWhatsNew(false);
         setIsKeybindsOpen((v) => !v);
         return;
       }
 
-      // While KeybindsModal is open, let it own keystrokes exclusively
-      if (isKeybindsOpen) return;
+      // While KeybindsModal or a guide dialog is open, let it own keystrokes exclusively
+      if (isKeybindsOpen || guidePanel) return;
 
       if (matchesShortcutAction(e, 'sim.toggle')) {
         e.preventDefault();
@@ -1074,6 +1194,7 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     isKeybindsOpen,
+    guidePanel,
     isSimulating,
     isViewOnly,
     selectedDeviceId,
@@ -1158,7 +1279,11 @@ export const App: React.FC = () => {
       return clone;
     };
 
-    if (inlineScripts.length > 0) {
+    // A hosted or desktop build loads its bundle from assets/ and has to inline it. The page's own inline
+    // theme script is not the bundle, so it only counts when there is no external one.
+    const extScript = document.querySelector<HTMLScriptElement>('script[src*="assets/"]');
+
+    if (!extScript && inlineScripts.length > 0) {
       const clone = prepareClone();
       clone.querySelectorAll(`script:not([src])${NOT_EMBEDDED_PROJECT}`).forEach((s) => {
         if (s.textContent) {
@@ -1167,7 +1292,6 @@ export const App: React.FC = () => {
       });
       htmlDoc = `<!doctype html>\n${clone.outerHTML}`;
     } else {
-      const extScript = document.querySelector<HTMLScriptElement>('script[src*="assets/"]');
       if (extScript?.src) {
         try {
           const clone = prepareClone();
@@ -1382,6 +1506,7 @@ export const App: React.FC = () => {
         standard={standard}
         onStandardChange={handleStandardChange}
         gridVoltage={project.gridVoltage}
+        gridFrequency={project.gridFrequency}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         isCompliant={report.isCompliant}
@@ -1451,11 +1576,15 @@ export const App: React.FC = () => {
             : undefined
         }
         onOpenKeybinds={() => setIsKeybindsOpen(true)}
+        onOpenHelp={openHelp}
+        onRestartWalkthrough={isViewOnly ? undefined : restartWalkthrough}
+        onOpenUpdateLogs={openUpdateLogs}
+        hasUnreadNotes={unreadNotes}
       />
 
-      {/* Desktop App Online Update Notification Banner */}
+      {/* Desktop App Online Update Notification Banner (held back until What's New is closed) */}
       <UpdateBanner
-        status={updateStatus}
+        status={guidePanel?.kind === 'whats-new' ? null : updateStatus}
         currentVersion={desktopVersion}
         onDownload={() => {
           window.wirewiseDesktop?.downloadUpdate();
@@ -1787,6 +1916,47 @@ export const App: React.FC = () => {
         onToggleCurves={() => setCurvesOpen((v) => !v)}
         onOpenKeybinds={() => setIsKeybindsOpen(true)}
       />
+
+      {/* First-run walkthrough: hidden on phones and while a dialog is open */}
+      {walkthroughStep !== null && !isViewOnly && !guidePanel && !isKeybindsOpen && !isLabModalOpen && !reportsOpen && (
+        <Walkthrough
+          step={walkthroughStep}
+          layout={breakpoint === 'desktop' ? 'desktop' : 'tablet'}
+          deviceCount={project.devices.length}
+          onStepChange={setWalkthroughStep}
+          onClose={closeWalkthrough}
+          onAction={handleTourAction}
+        />
+      )}
+
+      {guidePanel?.kind === 'help' && (
+        <HelpPanel
+          layout={breakpoint}
+          section={guidePanel.section}
+          onSectionChange={(section) => setGuidePanel({ kind: 'help', section })}
+          onClose={() => setGuidePanel(null)}
+          onRestartWalkthrough={isViewOnly ? undefined : restartWalkthrough}
+          onOpenShortcuts={() => {
+            setGuidePanel(null);
+            setIsKeybindsOpen(true);
+          }}
+        />
+      )}
+
+      {guidePanel?.kind === 'whats-new' && CURRENT_RELEASE && (
+        <WhatsNewModal
+          release={CURRENT_RELEASE}
+          touch={breakpoint !== 'desktop'}
+          onDismiss={(reason) => {
+            // Esc or a click outside leaves a dot on Help until Update Logs is opened
+            settleWhatsNew(reason === 'escape' || reason === 'scrim');
+            setGuidePanel(null);
+          }}
+          onViewAll={openUpdateLogs}
+        />
+      )}
+
+      {guidePanel?.kind === 'updates' && <UpdateLogsModal touch={breakpoint !== 'desktop'} onClose={() => setGuidePanel(null)} />}
 
       {/* Keyboard Shortcuts / Keybinds Editor Modal */}
       <KeybindsModal

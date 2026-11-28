@@ -1,6 +1,6 @@
 [package]
 name = "wirewise"
-version = "1.0.0"
+version = "1.1.0"
 description = "Interactive real-time electrical installation modeler, circuit simulator, and code compliance planner (PEC 2017 & IEC 60364)."
 authors = ["John Ray O. Dalida"]
 license = "MIT"

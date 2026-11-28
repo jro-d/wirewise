@@ -100,6 +100,7 @@ export const ViewSwitcher: React.FC<ViewSwitcherProps> = ({
         items={items}
         size={size}
         showChevron
+        dataTour="view-switcher"
       />
     );
   }
@@ -108,6 +109,7 @@ export const ViewSwitcher: React.FC<ViewSwitcherProps> = ({
     <div
       role="group"
       aria-label="Workspace view"
+      data-tour="view-switcher"
       className="flex items-center gap-0.5 bg-surface-sunken p-0.5 rounded-md shrink-0 border border-border/60"
     >
       {availableOptions.map((v) => {

@@ -35,6 +35,41 @@
   }
 }
 
+/* Walkthrough spotlight: probe ring with a breathing halo. No scrim, the canvas stays live. */
+.tour-ring {
+  position: fixed;
+  z-index: 41;
+  pointer-events: none;
+  border: 2px solid var(--probe);
+  border-radius: 8px;
+  box-shadow: 0 0 0 4px rgb(var(--c-probe) / 0.18);
+  transition: left 200ms ease-out, top 200ms ease-out, width 200ms ease-out, height 200ms ease-out;
+  animation: tour-halo 2s ease-in-out infinite;
+}
+@keyframes tour-halo {
+  50% {
+    box-shadow: 0 0 0 7px rgb(var(--c-probe) / 0.08);
+  }
+}
+
+/* Update banner slides in under the top bar */
+.banner-in {
+  animation: banner-in 200ms ease-out;
+}
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-ring,
+  .banner-in {
+    animation: none;
+    transition: none;
+  }
+}
+
 @keyframes dash {
   from {
     stroke-dashoffset: 100;

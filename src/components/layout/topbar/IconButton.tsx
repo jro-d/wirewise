@@ -13,6 +13,8 @@ export interface IconButtonProps {
   text?: string;
   className?: string;
   alignTooltip?: 'center' | 'left' | 'right';
+  /** Marks the button as a walkthrough target */
+  dataTour?: string;
 }
 
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
@@ -29,6 +31,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
       text,
       className = '',
       alignTooltip = 'center',
+      dataTour,
     },
     ref
   ) => {
@@ -46,6 +49,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         <button
           ref={ref}
           type="button"
+          data-tour={dataTour}
           onClick={onClick}
           disabled={disabled}
           aria-label={label}

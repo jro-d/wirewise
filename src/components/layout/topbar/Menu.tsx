@@ -13,6 +13,10 @@ export type MenuEntry =
       disabled?: boolean;
       active?: boolean;
       danger?: boolean;
+      /** Muted text after the label */
+      note?: string;
+      /** Small mono chip on the right, e.g. a version number */
+      badge?: string;
     }
   | {
       kind: 'submenu';
@@ -29,6 +33,13 @@ export type MenuEntry =
       kind: 'header';
       id: string;
       label: string;
+    }
+  | {
+      /** Quiet line at the bottom of a menu that is still clickable */
+      kind: 'footer';
+      id: string;
+      label: string;
+      onSelect: () => void;
     };
 
 export interface MenuButtonProps {
@@ -40,6 +51,17 @@ export interface MenuButtonProps {
   align?: 'left' | 'right';
   disabled?: boolean;
   showChevron?: boolean;
+  /** Marks the trigger as a walkthrough target */
+  dataTour?: string;
+  /** Trigger tone while the menu is open */
+  openTone?: 'neutral' | 'probe';
+  /** 6 px brand dot on the trigger */
+  dot?: boolean;
+  panelClassName?: string;
+  /** Long menus: scroll inside the viewport and open submenus in place */
+  scrollable?: boolean;
+  /** Phone: show the menu as a bottom sheet */
+  sheet?: boolean;
 }
 
 function getFocusableMenuItems(container: HTMLElement | null): HTMLButtonElement[] {
@@ -57,7 +79,14 @@ export const MenuButton: React.FC<MenuButtonProps> = ({
   align = 'left',
   disabled = false,
   showChevron = false,
+  dataTour,
+  openTone = 'neutral',
+  dot = false,
+  panelClassName = '',
+  scrollable = false,
+  sheet = false,
 }) => {
+  const inlineSubmenus = scrollable || sheet;
   const [open, setOpen] = useState(false);
   const [openSubmenuId, setOpenSubmenuId] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -158,6 +187,8 @@ export const MenuButton: React.FC<MenuButtonProps> = ({
 
   const sizeClass = size === 'touch' ? 'h-11 min-w-[44px] px-2.5' : 'h-8 min-w-[32px] px-2';
   const itemHeightClass = size === 'touch' ? 'min-h-[44px]' : 'min-h-[34px]';
+  const openClass =
+    openTone === 'probe' ? 'bg-probe-soft border-probe-soft text-probe shadow-1' : 'bg-surface-hover border-border-strong text-ink shadow-1';
 
   const renderEntry = (entry: MenuEntry, containerRef: React.RefObject<HTMLDivElement | null>, isSub = false) => {
     if (entry.kind === 'divider') {
@@ -173,6 +204,24 @@ export const MenuButton: React.FC<MenuButtonProps> = ({
         </div>
       );
     }
+    if (entry.kind === 'footer') {
+      return (
+        <button
+          key={entry.id}
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            closeMenu(true);
+            entry.onSelect();
+          }}
+          className={`mt-1 w-full border-t border-border px-3 pt-1.5 pb-0.5 text-left font-mono text-[11px] text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:bg-surface-hover ${
+            size === 'touch' ? 'min-h-[44px]' : 'min-h-[28px]'
+          }`}
+        >
+          {entry.label}
+        </button>
+      );
+    }
     if (entry.kind === 'submenu') {
       const SubIcon = entry.icon;
       const isSubOpen = openSubmenuId === entry.id;
@@ -181,8 +230,8 @@ export const MenuButton: React.FC<MenuButtonProps> = ({
         <div
           key={entry.id}
           className="relative"
-          onMouseEnter={() => setOpenSubmenuId(entry.id)}
-          onMouseLeave={() => setOpenSubmenuId((curr) => (curr === entry.id ? null : curr))}
+          onMouseEnter={inlineSubmenus ? undefined : () => setOpenSubmenuId(entry.id)}
+          onMouseLeave={inlineSubmenus ? undefined : () => setOpenSubmenuId((curr) => (curr === entry.id ? null : curr))}
         >
           <button
             type="button"
@@ -200,11 +249,14 @@ export const MenuButton: React.FC<MenuButtonProps> = ({
             className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 text-left text-xs font-medium text-ink hover:bg-surface-hover focus-visible:outline-none focus-visible:bg-surface-hover ${itemHeightClass}`}
           >
             <span className="flex items-center gap-2 min-w-0">
-              {align === 'right' && <ChevronLeft className="w-3.5 h-3.5 text-ink-muted shrink-0" />}
+              {!inlineSubmenus && align === 'right' && <ChevronLeft className="w-3.5 h-3.5 text-ink-muted shrink-0" />}
               {SubIcon && <SubIcon className="w-4 h-4 text-ink-muted shrink-0" />}
               <span className="truncate">{entry.label}</span>
             </span>
-            {align === 'left' && <ChevronRight className="w-3.5 h-3.5 text-ink-muted shrink-0" />}
+            {!inlineSubmenus && align === 'left' && <ChevronRight className="w-3.5 h-3.5 text-ink-muted shrink-0" />}
+            {inlineSubmenus && (
+              <ChevronDown className={`w-3.5 h-3.5 text-ink-muted shrink-0 ${isSubOpen ? 'rotate-180' : ''}`} />
+            )}
           </button>
           {isSubOpen && (
             <div
@@ -212,7 +264,11 @@ export const MenuButton: React.FC<MenuButtonProps> = ({
               role="menu"
               aria-label={entry.label}
               onKeyDown={(e) => handleMenuKeyDown(submenuRef.current, e, true)}
-              className={`absolute ${submenuSideClass} z-50 min-w-[220px] rounded-md border border-border bg-surface py-1 shadow-2`}
+              className={
+                inlineSubmenus
+                  ? 'ml-4 border-l border-border'
+                  : `absolute ${submenuSideClass} z-50 min-w-[220px] rounded-md border border-border bg-surface py-1 shadow-2`
+              }
             >
               {entry.items.map((sub) => renderEntry(sub, submenuRef, true))}
             </div>
@@ -256,9 +312,15 @@ export const MenuButton: React.FC<MenuButtonProps> = ({
               {entry.active ? <Check className="w-3.5 h-3.5" /> : null}
             </span>
           )}
-          <span className="truncate">{entry.label}</span>
+          <span className="truncate">
+            {entry.label}
+            {entry.note && <span className="font-normal text-ink-muted"> {entry.note}</span>}
+          </span>
         </span>
         <span className="flex items-center gap-1.5 shrink-0">
+          {entry.badge && (
+            <span className="rounded-sm bg-brand-soft px-1.5 py-px font-mono text-[11px] font-medium text-brand-ink">{entry.badge}</span>
+          )}
           {entry.shortcut && (
             <kbd className="rounded-xs border border-border bg-surface-sunken px-1 py-px font-mono text-[10px] text-ink-muted">
               {entry.shortcut}
@@ -280,6 +342,7 @@ export const MenuButton: React.FC<MenuButtonProps> = ({
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label={label}
+          data-tour={dataTour}
           onClick={() => setOpen((prev) => !prev)}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown' && !open) {
@@ -287,17 +350,18 @@ export const MenuButton: React.FC<MenuButtonProps> = ({
               setOpen(true);
             }
           }}
-          className={`flex items-center justify-center gap-1.5 rounded-md border text-xs font-medium transition motion-reduce:transition-none shrink-0 focus-visible:outline-none focus-visible:shadow-focus ${sizeClass} ${
+          className={`relative flex items-center justify-center gap-1.5 rounded-md border text-xs font-medium transition motion-reduce:transition-none shrink-0 focus-visible:outline-none focus-visible:shadow-focus ${sizeClass} ${
             disabled
               ? 'bg-transparent border-transparent text-ink-faint cursor-not-allowed'
               : open
-              ? 'bg-surface-hover border-border-strong text-ink shadow-1'
+              ? openClass
               : 'bg-surface border-border text-ink hover:bg-surface-hover hover:border-border-strong shadow-1'
           }`}
         >
           <Icon className="w-4 h-4 shrink-0" />
           {text && <span className="truncate max-w-[90px]">{text}</span>}
           {showChevron && <ChevronDown className="w-3.5 h-3.5 text-ink-muted shrink-0" />}
+          {dot && <span aria-hidden="true" className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-brand" />}
         </button>
       </Tooltip>
 
@@ -307,10 +371,15 @@ export const MenuButton: React.FC<MenuButtonProps> = ({
           role="menu"
           aria-label={label}
           onKeyDown={(e) => handleMenuKeyDown(menuRef.current, e, false)}
-          className={`absolute top-full mt-1.5 ${
-            align === 'right' ? 'right-0' : 'left-0'
-          } z-50 min-w-[230px] rounded-md border border-border bg-surface py-1 shadow-2`}
+          className={
+            sheet
+              ? `fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-lg border-t border-border bg-surface pb-3 pt-2 shadow-2 ${panelClassName}`
+              : `absolute top-full mt-1.5 ${align === 'right' ? 'right-0' : 'left-0'} z-50 min-w-[230px] rounded-md border border-border bg-surface py-1 shadow-2 ${
+                  scrollable ? 'max-h-[calc(100vh-72px)] overflow-y-auto' : ''
+                } ${panelClassName}`
+          }
         >
+          {sheet && <div aria-hidden="true" className="mx-auto mb-2 h-1 w-8 rounded-sm bg-border" />}
           {items.map((entry) => renderEntry(entry, menuRef, false))}
         </div>
       )}

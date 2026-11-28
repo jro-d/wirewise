@@ -56,5 +56,13 @@ export function initDesktopBridge(): void {
       listenEvent<void>('desktop:open-keybinds', () => callback()),
     onResetKeybinds: (callback: () => void) =>
       listenEvent<void>('desktop:reset-keybinds', () => callback()),
+    onOpenHelp: (callback: () => void) =>
+      listenEvent<void>('desktop:open-help', () => callback()),
+    onRestartWalkthrough: (callback: () => void) =>
+      listenEvent<void>('desktop:restart-walkthrough', () => callback()),
+    onOpenUpdateLogs: (callback: () => void) =>
+      listenEvent<void>('desktop:open-update-logs', () => callback()),
+    onOpenStandardsNotice: (callback: () => void) =>
+      listenEvent<void>('desktop:open-standards-notice', () => callback()),
   };
 }

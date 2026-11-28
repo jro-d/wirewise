@@ -29,6 +29,10 @@ export interface WireWiseDesktopBridge {
   onUpdateStatus: (callback: (status: DesktopUpdateStatus) => void) => () => void;
   onOpenKeybinds?: (callback: () => void) => () => void;
   onResetKeybinds?: (callback: () => void) => () => void;
+  onOpenHelp?: (callback: () => void) => () => void;
+  onRestartWalkthrough?: (callback: () => void) => () => void;
+  onOpenUpdateLogs?: (callback: () => void) => () => void;
+  onOpenStandardsNotice?: (callback: () => void) => () => void;
 }
 
 declare global {
