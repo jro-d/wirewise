@@ -5,7 +5,7 @@
  */
 
 export const SHARE_PREFIX = '#share=';
-/** Above this many characters some apps cut links: offer "Export JSON" instead. */
+/** Above this many characters some apps cut links: offer the project file instead. */
 export const SHARE_WARN_LENGTH = 8000;
 
 const b64 = {
@@ -120,7 +120,7 @@ export async function decodeShare(hash: string): Promise<unknown> {
   }
   let raw: Uint8Array;
   if (method === 'd') {
-    if (!hasCompressionStream()) throw new Error('This browser cannot open a deflate link: ask for an Export JSON file instead');
+    if (!hasCompressionStream()) throw new Error('This browser cannot open a deflate link: ask for the project file instead');
     try {
       raw = await streamBytes(bytes, new DecompressionStream('deflate-raw'));
     } catch {

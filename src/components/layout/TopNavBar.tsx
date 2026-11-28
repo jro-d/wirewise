@@ -32,6 +32,8 @@ import {
   Undo2,
   Unlock,
   Upload,
+  Volume2,
+  VolumeX,
   Wrench,
   Zap,
 } from 'lucide-react';
@@ -39,6 +41,8 @@ import { CodeStandard } from '../../types/electrical';
 import { saveTheme } from '../../utils/themeStorage';
 import { useKeybinds } from '../../utils/shortcuts';
 import { APP_VERSION } from '../../utils/appVersion';
+import { toggleSound } from '../../utils/soundFx';
+import { useSoundMuted } from '../../utils/soundSettings';
 import type { HelpSectionId } from '../../data/helpContent';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { IconButton } from './topbar/IconButton';
@@ -74,9 +78,9 @@ interface TopNavBarProps {
   onOpenLabs: () => void;
   onResetSimulation: () => void;
   onClearCanvas: () => void;
-  onExportJson: () => void;
+  onSaveProject: () => void;
   onExportHtml?: () => void;
-  onImportJson: () => void;
+  onOpenProject: () => void;
   onFlipAllOutlets?: () => void;
   isAllRearView?: boolean;
   canUndo?: boolean;
@@ -141,9 +145,9 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   onOpenLabs,
   onResetSimulation,
   onClearCanvas,
-  onExportJson,
+  onSaveProject,
   onExportHtml,
-  onImportJson,
+  onOpenProject,
   onFlipAllOutlets,
   isAllRearView = false,
   canUndo = false,
@@ -184,6 +188,7 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   hasUnreadNotes = false,
 }) => {
   const theme = useTheme();
+  const soundMuted = useSoundMuted();
   const { getLabel } = useKeybinds();
   const breakpoint = useBreakpoint();
   const isPhone = isViewOnly ?? breakpoint === 'phone';
@@ -198,17 +203,17 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
       onSelect: onOpenLabs,
     },
     {
-      id: 'import',
-      label: 'Import project JSON…',
+      id: 'open-project',
+      label: 'Open project…',
       icon: Upload,
       disabled: isSimulating,
-      onSelect: onImportJson,
+      onSelect: onOpenProject,
     },
     {
-      id: 'export-json',
-      label: 'Export project as JSON',
+      id: 'save-project',
+      label: 'Save project (.wirewise)',
       icon: Download,
-      onSelect: onExportJson,
+      onSelect: onSaveProject,
     },
   ];
   if (onExportHtml) {
@@ -411,6 +416,13 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
       label: theme.dark ? 'Switch to light theme' : 'Switch to dark theme',
       icon: theme.dark ? Sun : Moon,
       onSelect: theme.toggle,
+    },
+    {
+      id: 'toggle-sound',
+      label: soundMuted ? 'Turn sound effects on' : 'Mute sound effects',
+      icon: soundMuted ? Volume2 : VolumeX,
+      shortcut: isDesktop ? getLabel('sound.toggle') : undefined,
+      onSelect: toggleSound,
     }
   );
   // On tablets the shortcuts item sits in the Help group below

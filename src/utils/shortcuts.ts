@@ -32,6 +32,7 @@ export type ShortcutActionId =
   | 'panel.dmm'
   | 'panel.keybinds'
   | 'panel.help'
+  | 'sound.toggle'
   | 'view.realistic'
   | 'view.split'
   | 'view.ladder'
@@ -227,6 +228,14 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     label: 'Open keyboard shortcuts',
     description: 'Open this keybinds customization panel',
     defaultCombo: 'Ctrl+/',
+  },
+
+  {
+    id: 'sound.toggle',
+    category: 'Simulation & Tools',
+    label: 'Sound effects on / off',
+    description: 'Mute or unmute all sound effects, including buzzers',
+    defaultCombo: 'Alt+S',
   },
 
   // Views & Panels

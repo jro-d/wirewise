@@ -1,7 +1,10 @@
 import React from 'react';
+import { Volume2, VolumeX } from 'lucide-react';
 import { CodeStandard } from '../../types/electrical';
 import { useCadStatus } from '../../utils/cadStatusStore';
 import { useKeybinds } from '../../utils/shortcuts';
+import { toggleSound } from '../../utils/soundFx';
+import { useSoundMuted } from '../../utils/soundSettings';
 
 export type SnapSize = 10 | 5 | 0;
 
@@ -60,6 +63,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 }) => {
   const { cursorX, cursorY, zoom, wiring } = useCadStatus();
   const { getLabel } = useKeybinds();
+  const soundMuted = useSoundMuted();
+  const SoundIcon = soundMuted ? VolumeX : Volume2;
 
   const mode = wiring ? 'Wiring Conductor' : isSimulating ? 'Live Simulation' : 'Selection / Edit';
   const standardLabel = standard === 'PEC' ? 'PEC 2017' : 'IEC 60364';
@@ -72,17 +77,31 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   return (
     <footer data-tour="statusbar" className="h-7 shrink-0 flex items-center justify-between gap-4 px-3 bg-surface-sunken border-t border-border text-[11px] font-mono text-ink-muted select-none z-20">
       <div className="flex items-center gap-4 min-w-0">
-        <span className="w-28 tabular-nums" title="Cursor position in workbench units">
+        <span className="w-28 shrink-0 whitespace-nowrap tabular-nums" title="Cursor position in workbench units">
           X: {Math.round(cursorX)}, Y: {Math.round(cursorY)}
         </span>
-        <span className="w-20 tabular-nums">Zoom: {Math.round(zoom * 100)}%</span>
-        <button
-          onClick={cycleSnap}
-          className="px-2 py-0.5 rounded border border-border-strong bg-surface hover:bg-surface-sunken font-bold text-ink transition"
-          title="Cycle grid snapping: 10px → 5px → OFF"
-        >
-          Snap: {snapSize === 0 ? 'OFF' : `${snapSize}px`}
-        </button>
+        <span className="w-20 shrink-0 whitespace-nowrap tabular-nums">Zoom: {Math.round(zoom * 100)}%</span>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={cycleSnap}
+            className="px-2 py-0.5 rounded border border-border-strong bg-surface hover:bg-surface-sunken font-bold text-ink whitespace-nowrap transition"
+            title="Cycle grid snapping: 10px → 5px → OFF"
+          >
+            Snap: {snapSize === 0 ? 'OFF' : `${snapSize}px`}
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleSound()}
+            aria-pressed={!soundMuted}
+            aria-label="Sound effects"
+            title={`Sound effects ${soundMuted ? 'off' : 'on'} (${getLabel('sound.toggle')})`}
+            className={`h-5 w-7 shrink-0 flex items-center justify-center rounded border border-border-strong bg-surface hover:bg-surface-sunken transition ${
+              soundMuted ? 'text-ink-muted' : 'text-ink'
+            }`}
+          >
+            <SoundIcon className="w-3.5 h-3.5" />
+          </button>
+        </div>
         <span className="flex items-center gap-1.5 font-semibold truncate">
           <span
             className={`w-1.5 h-1.5 rounded-full ${
@@ -93,7 +112,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         </span>
       </div>
 
-      <div className="hidden xl:flex items-center gap-2 text-[10px] text-ink-muted truncate" title="Keyboard shortcuts">
+      <div className="hidden xl:flex shrink-[100] min-w-0 items-center gap-2 text-[10px] text-ink-muted truncate" title="Keyboard shortcuts">
         {[
           [getLabel('tool.pan'), 'pan'],
           [getLabel('canvas.fit'), 'fit'],

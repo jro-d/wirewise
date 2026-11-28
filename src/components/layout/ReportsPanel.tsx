@@ -300,7 +300,7 @@ export const ShareTab: React.FC<ReportContext> = ({ project }) => {
           <div>{result.length.toLocaleString()} characters ({result.method === 'deflate' ? 'deflate' : 'LZW fallback'}).</div>
           {result.tooLong && (
             <div className="text-warning font-semibold">
-              This link is longer than about {SHARE_WARN_LENGTH.toLocaleString()} characters: some chat apps and browsers cut long links. Use <b>Export JSON</b> (the download button in the top bar) to send the project as a file instead.
+              This link is longer than about {SHARE_WARN_LENGTH.toLocaleString()} characters: some chat apps and browsers cut long links. Use <b>File › Save project</b> to send it as a .wirewise file instead.
             </div>
           )}
           <textarea readOnly className="w-full h-24 p-1.5 rounded border border-border bg-surface font-mono text-[10px]" value={url} onFocus={(e) => e.currentTarget.select()} />

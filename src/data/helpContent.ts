@@ -74,6 +74,10 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Touch',
         rows: [{ label: 'Tablet gestures', text: 'Drag with one finger in the Pan tool, pinch to zoom, tap to select, double-tap to inspect.' }],
       },
+      {
+        title: 'Sound',
+        rows: [{ label: 'Sound effects', text: '{sound.toggle} turns sound effects on or off. The overflow menu and the speaker button in the status bar do the same.' }],
+      },
     ],
   },
   {
@@ -91,6 +95,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           { label: 'Multi-select', text: 'Drag a marquee, or hold {=Shift} and click. Move or delete the group together.' },
           { label: 'DIN-rail snapping', text: 'Drag a modular device close to a rail and it snaps on. Devices also line up on their centres.' },
           { label: 'Edit a device', text: '{edit.rotate} rotate · {edit.lock} lock · {edit.inspect} inspector · arrow keys nudge.' },
+          { label: 'Save and open', text: 'File, then Save project, writes a .wirewise file. Open project reads .wirewise and older .json files.' },
         ],
       },
     ],

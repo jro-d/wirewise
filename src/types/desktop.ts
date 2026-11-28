@@ -21,6 +21,12 @@ export interface DesktopAppInfo {
   isPackaged: boolean;
 }
 
+/** A project file Windows asked the app to open */
+export interface OpenedProjectFile {
+  name: string;
+  contents: string;
+}
+
 export interface WireWiseDesktopBridge {
   getInfo: () => Promise<DesktopAppInfo>;
   checkForUpdates: () => Promise<void>;
@@ -33,6 +39,9 @@ export interface WireWiseDesktopBridge {
   onRestartWalkthrough?: (callback: () => void) => () => void;
   onOpenUpdateLogs?: (callback: () => void) => () => void;
   onOpenStandardsNotice?: (callback: () => void) => () => void;
+  /** The file waiting to be opened, if any. Each file is handed over once. */
+  takeOpenedFile?: () => Promise<OpenedProjectFile | null>;
+  onOpenFile?: (callback: () => void) => () => void;
 }
 
 declare global {
